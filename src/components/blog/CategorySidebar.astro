@@ -1,0 +1,105 @@
+---
+// src/components/blog/CategorySidebar.astro
+import { getCollection } from 'astro:content';
+
+interface Props {
+  activeCategory?: string;
+  activeTag?: string;
+}
+
+const { activeCategory, activeTag } = Astro.props;
+
+// 모든 발행된 글 가져오기
+const posts = await getCollection('posts', ({ data }) => !data.draft);
+
+// 1. 카테고리별 글 개수 집계 (예: { Frontend: 1, CS: 1 })
+const categoryMap = posts.reduce((acc, post) => {
+  const cat = post.data.category;
+  acc[cat] = (acc[cat] || 0) + 1;
+  return acc;
+}, {} as Record<string, number>);
+
+// 2. 태그별 글 개수 집계 (예: { JavaScript: 1, Browser: 1 ... })
+const tagMap = posts.reduce((acc, post) => {
+  post.data.tags.forEach((tag) => {
+    acc[tag] = (acc[tag] || 0) + 1;
+  });
+  return acc;
+}, {} as Record<string, number>);
+
+const categories = Object.entries(categoryMap).sort((a, b) => b[1] - a[1]);
+const tags = Object.entries(tagMap).sort((a, b) => b[1] - a[1]);
+---
+
+<aside class="w-full md:w-56 shrink-0 space-y-8">
+  <!-- 전체 글 보기 링크 -->
+  <div>
+    <a
+      href="/"
+      class={`flex items-center justify-between px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
+        !activeCategory && !activeTag
+          ? 'bg-indigo-50 text-indigo-600'
+          : 'text-slate-600 hover:bg-slate-100'
+      }`}
+    >
+      <span>📂 전체 글</span>
+      <span class="text-xs bg-slate-200/70 text-slate-600 px-2 py-0.5 rounded-full">
+        {posts.length}
+      </span>
+    </a>
+  </div>
+
+  <!-- 카테고리 섹션 -->
+  <div>
+    <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 px-3">
+      Categories
+    </h3>
+    <ul class="space-y-1">
+      {categories.map(([category, count]) => {
+        const isActive = activeCategory === category;
+        return (
+          <li>
+            <a
+              href={`/category/${category}/`}
+              class={`flex items-center justify-between px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                isActive
+                  ? 'bg-indigo-50 text-indigo-600 font-semibold'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <span>{category}</span>
+              <span class="text-xs text-slate-400">({count})</span>
+            </a>
+          </li>
+        );
+      })}
+    </ul>
+  </div>
+
+  <!-- 태그 섹션 -->
+  <div>
+    <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 px-3">
+      Tags
+    </h3>
+    <div class="flex flex-wrap gap-1.5 px-2">
+      {tags.map(([tag, count]) => {
+        const isActive = activeTag === tag;
+        return (
+          <a
+            href={`/tags/${tag}/`}
+            class={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors ${
+              isActive
+                ? 'bg-indigo-600 text-white font-medium'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <span>#{tag}</span>
+            <span class={`text-[10px] ${isActive ? 'text-indigo-200' : 'text-slate-400'}`}>
+              {count}
+            </span>
+          </a>
+        );
+      })}
+    </div>
+  </div>
+</aside>

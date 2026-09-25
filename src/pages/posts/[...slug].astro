@@ -1,0 +1,87 @@
+---
+// src/pages/posts/[...slug].astro
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import TOC from '../../components/blog/TOC.astro';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('posts');
+  return posts.map((post) => ({
+    params: { slug: post.slug },
+    props: { post },
+  }));
+}
+
+const { post } = Astro.props;
+
+// ⭐ headings를 함께 꺼냅니다!
+const { Content, headings } = await post.render();
+
+function formatDate(date: Date) {
+  return date.toLocaleDateString('ko-KR', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+}
+---
+
+<BaseLayout title={post.data.title} description={post.data.description}>
+  <!-- 부드러운 스크롤 이동을 위해 html/container 스타일 보정 -->
+  <div class="max-w-6xl mx-auto py-12 px-6">
+    <nav class="mb-8">
+      <a 
+        href="/" 
+        class="inline-flex items-center text-sm font-medium text-slate-500 hover:text-indigo-600 transition-colors"
+      >
+        ← 목록으로 돌아가기
+      </a>
+    </nav>
+
+    <!-- 좌: 본문 영역 / 우: 목차(TOC) 2단 레이아웃 -->
+    <div class="flex flex-col xl:flex-row gap-12 items-start">
+      <!-- 1. 글 상세 메인 본문 -->
+      <article class="flex-1 min-w-0 max-w-3xl">
+        <header class="mb-10 pb-8 border-b border-slate-200">
+          <div class="flex items-center gap-3 text-xs text-slate-500 mb-3">
+            <a 
+              href={`/category/${post.data.category}/`}
+              class="font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full hover:bg-indigo-100 transition-colors"
+            >
+              {post.data.category}
+            </a>
+            <time datetime={post.data.pubDate.toISOString()}>
+              {formatDate(post.data.pubDate)}
+            </time>
+          </div>
+
+          <h1 class="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight mb-4">
+            {post.data.title}
+          </h1>
+
+          <p class="text-lg text-slate-600 mb-6">
+            {post.data.description}
+          </p>
+
+          <div class="flex flex-wrap gap-2">
+            {post.data.tags.map((tag) => (
+              <a
+                href={`/tags/${tag}/`}
+                class="text-xs bg-slate-100 text-slate-600 px-2.5 py-1 rounded-md font-medium hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+              >
+                #{tag}
+              </a>
+            ))}
+          </div>
+        </header>
+
+        <main class="prose prose-slate lg:prose-lg max-w-none">
+          <Content />
+        </main>
+      </article>
+
+      <!-- 2. 우측 목차 (TOC) -->
+      <TOC headings={headings} />
+    </div>
+  </div>
+</BaseLayout>

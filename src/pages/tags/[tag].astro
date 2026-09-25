@@ -1,0 +1,56 @@
+---
+// src/pages/tags/[tag].astro
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import CategorySidebar from '../../components/blog/CategorySidebar.astro';
+import PostCard from '../../components/blog/PostCard.astro';
+
+export async function getStaticPaths() {
+  const allPosts = await getCollection('posts', ({ data }) => !data.draft);
+
+  // 모든 글에 존재하는 고유한 태그 목록 추출
+  const uniqueTags = [...new Set(allPosts.flatMap((post) => post.data.tags))];
+
+  // 각 태그별로 해당하는 글들을 필터링하여 페이지 생성
+  return uniqueTags.map((tag) => {
+    const filteredPosts = allPosts
+      .filter((post) => post.data.tags.includes(tag))
+      .sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime());
+
+    return {
+      params: { tag },
+      props: { posts: filteredPosts, tag },
+    };
+  });
+}
+
+const { posts, tag } = Astro.props;
+---
+
+<BaseLayout title={`#${tag} 태그 글 목록`}>
+  <div class="max-w-5xl mx-auto px-6 py-12">
+    <header class="mb-10 border-b border-slate-200 pb-6">
+      <div class="flex items-center gap-2 text-sm text-slate-500 mb-2">
+        <a href="/" class="hover:text-indigo-600 transition-colors">홈</a>
+        <span>/</span>
+        <span>태그</span>
+      </div>
+      <h1 class="text-3xl font-extrabold tracking-tight text-slate-900">
+        #{tag} <span class="text-lg font-normal text-slate-500">({posts.length}개의 글)</span>
+      </h1>
+    </header>
+
+    <div class="flex flex-col md:flex-row gap-10">
+      <!-- 현재 선택된 태그를 activeTag로 전달하여 강조 표시 -->
+      <CategorySidebar activeTag={tag} />
+
+      <main class="flex-1">
+        <div class="grid gap-6">
+          {posts.map((post) => (
+            <PostCard post={post} />
+          ))}
+        </div>
+      </main>
+    </div>
+  </div>
+</BaseLayout>

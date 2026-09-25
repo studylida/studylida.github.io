@@ -1,0 +1,154 @@
+---
+// src/components/interactive/KnowledgePopover.astro
+// 이 컴포넌트는 전역에서 동작하는 인터랙티브 팝오버입니다.
+---
+
+<!-- 1. 화면에 떠오를 팝오버 카드 (기본은 hidden 상태) -->
+<div
+  id="knowledge-popover"
+  class="fixed z-50 hidden w-80 bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-indigo-100 p-4 transition-all duration-200 animate-in fade-in zoom-in-95 text-slate-800"
+  style="top: 0; left: 0;"
+>
+  <!-- 팝오버 헤더: 선택된 단어와 닫기 버튼 -->
+  <div class="flex items-center justify-between border-b border-slate-100 pb-2 mb-3">
+    <div class="flex items-center gap-1.5 text-xs font-semibold text-indigo-600">
+      <span>🔗</span>
+      <span id="popover-query-badge" class="truncate max-w-[180px]">연관 지식</span>
+    </div>
+    <button
+      id="popover-close-btn"
+      class="text-slate-400 hover:text-slate-600 text-xs px-1.5 py-0.5 rounded transition-colors"
+      title="닫기 (Esc)"
+    >
+      ✕
+    </button>
+  </div>
+
+  <!-- 추천 글 목록이 동적으로 들어갈 컨테이너 -->
+  <ul id="popover-results-list" class="space-y-2.5 max-h-60 overflow-y-auto">
+    <!-- 자바스크립트가 검색 결과를 여기에 <li> 태그로 삽입합니다 -->
+  </ul>
+</div>
+
+<!-- 2. 클라이언트 사이드 인터랙션 스크립트 -->
+<script>
+  import { getSearchIndex, findRelatedPosts } from '../../lib/knowledgeEngine';
+
+  const popover = document.getElementById('knowledge-popover');
+  const queryBadge = document.getElementById('popover-query-badge');
+  const resultsList = document.getElementById('popover-results-list');
+  const closeBtn = document.getElementById('popover-close-btn');
+
+  // 현재 페이지의 slug 알아내기 (예: /posts/javascript-closure/ -> javascript-closure)
+  function getCurrentSlug(): string {
+    const path = window.location.pathname;
+    const match = path.match(/\/posts\/([^\/]+)/);
+    return match ? match[1] : '';
+  }
+
+  // 팝오버 닫기
+  function hidePopover() {
+    if (popover) {
+      popover.classList.add('hidden');
+    }
+  }
+
+  // 팝오버 닫기 버튼 클릭
+  closeBtn?.addEventListener('click', hidePopover);
+
+  // Esc 키를 누르면 팝오버 닫기
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hidePopover();
+  });
+
+  // 팝오버 외부 영역 클릭 시 닫기
+  document.addEventListener('mousedown', (e) => {
+    if (popover && !popover.contains(e.target as Node)) {
+      hidePopover();
+    }
+  });
+
+  // ⭐ 핵심: 텍스트 드래그 및 더블클릭 이벤트 감지 (mouseup)
+  document.addEventListener('mouseup', async (e) => {
+    // 팝오버 내부를 클릭한 경우는 이벤트 무시
+    if (popover && popover.contains(e.target as Node)) {
+      return;
+    }
+
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) {
+      return; // 드래그된 텍스트가 없으면 종료
+    }
+
+    const selectedText = selection.toString().trim();
+
+    // 2글자 미만이거나 너무 긴 문장은 건너뛰기
+    if (selectedText.length < 2 || selectedText.length > 30) {
+      return;
+    }
+
+    // 지식 색인 가져오기 및 연관 글 검색
+    const index = await getSearchIndex();
+    const currentSlug = getCurrentSlug();
+    const matches = findRelatedPosts(selectedText, index, currentSlug);
+
+    // 연관된 글이 없으면 팝업을 띄우지 않아 독서를 방해하지 않음
+    if (matches.length === 0) {
+      return;
+    }
+
+    // 팝오버에 결과 렌더링
+    if (queryBadge) queryBadge.textContent = `'${selectedText}' 연관 지식`;
+    if (resultsList) {
+      resultsList.innerHTML = matches
+        .map(
+          ({ post, matchedReason }) => `
+          <li>
+            <a 
+              href="/posts/${post.slug}/" 
+              class="block p-2 rounded-lg hover:bg-indigo-50/80 transition-colors border border-transparent hover:border-indigo-100 group"
+            >
+              <div class="flex items-center gap-1.5 mb-1">
+                <span class="text-[10px] font-semibold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">
+                  ${matchedReason}
+                </span>
+                <span class="text-[10px] text-slate-400 font-medium">
+                  ${post.category}
+                </span>
+              </div>
+              <div class="text-xs font-bold text-slate-800 group-hover:text-indigo-600 transition-colors truncate">
+                ${post.title}
+              </div>
+              <div class="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
+                ${post.description}
+              </div>
+            </a>
+          </li>
+        `
+        )
+        .join('');
+    }
+
+    // ⭐ 좌표 계산 및 화면 경계 보정 (Collision Detection)
+    const range = selection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    const popoverWidth = 320; // w-80 = 20rem = 320px
+    const popoverHeight = 220;
+
+    // 가로 위치: 선택 영역 중앙에 맞추되, 화면 좌우 밖으로 삐져나가지 않도록 보정
+    let left = rect.left + rect.width / 2 - popoverWidth / 2;
+    left = Math.max(16, Math.min(window.innerWidth - popoverWidth - 16, left));
+
+    // 세로 위치: 기본적으로 단어 아래쪽에 표시하되, 아래 공간이 부족하면 위쪽에 표시
+    let top = rect.bottom + 8;
+    if (top + popoverHeight > window.innerHeight && rect.top > popoverHeight + 16) {
+      top = rect.top - popoverHeight - 8;
+    }
+
+    if (popover) {
+      popover.style.left = `${left}px`;
+      popover.style.top = `${top}px`;
+      popover.classList.remove('hidden');
+    }
+  });
+</script>

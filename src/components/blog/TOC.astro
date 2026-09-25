@@ -1,0 +1,65 @@
+---
+// src/components/blog/TOC.astro
+import type { MarkdownHeading } from 'astro';
+
+interface Props {
+  headings: MarkdownHeading[];
+}
+
+const { headings } = Astro.props;
+
+// h2, h3 제목만 목차에 표시
+const filteredHeadings = headings.filter((h) => h.depth === 2 || h.depth === 3);
+---
+
+{filteredHeadings.length > 0 && (
+  <!-- ⭐ aside 태그 자체에 sticky top-24 self-start 적용! -->
+  <aside class="hidden xl:block w-64 shrink-0 sticky top-24 self-start">
+    <div class="space-y-3 p-4 bg-white/80 backdrop-blur rounded-xl border border-slate-200 shadow-sm">
+      <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+        <span>📑</span>
+        <span>목차 (On this page)</span>
+      </h3>
+      <nav class="toc-nav">
+        <ul class="space-y-1.5 text-xs text-slate-600">
+          {filteredHeadings.map((heading) => (
+            <li class={heading.depth === 3 ? 'pl-3' : ''}>
+              <a
+                href={`#${heading.slug}`}
+                data-slug={heading.slug}
+                class="toc-link block py-1 hover:text-indigo-600 transition-colors line-clamp-1"
+              >
+                {heading.text}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    </div>
+  </aside>
+)}
+
+<script>
+  // 현재 읽고 있는 제목 위치를 감지하여 목차의 텍스트 색상을 실시간으로 바꿔주는 스크립트
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          const id = entry.target.getAttribute('id');
+          document.querySelectorAll('.toc-link').forEach((link) => {
+            if (link.getAttribute('data-slug') === id) {
+              link.classList.add('text-indigo-600', 'font-bold');
+            } else {
+              link.classList.remove('text-indigo-600', 'font-bold');
+            }
+          });
+        }
+      });
+    },
+    { rootMargin: '-80px 0px -70% 0px' }
+  );
+
+  document.querySelectorAll('article h2, article h3').forEach((heading) => {
+    observer.observe(heading);
+  });
+</script>
