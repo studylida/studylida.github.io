@@ -1,0 +1,75 @@
+---
+// src/components/blog/CodeCopy.astro
+---
+
+<script>
+  function setupCodeBlocks() {
+    // 본문(article) 안의 모든 pre 태그(코드 블록) 찾기
+    const preElements = document.querySelectorAll('article pre');
+
+    preElements.forEach((pre) => {
+      // 이미 복사 버튼이 설치되어 있다면 중복 실행 방지
+      if (pre.parentElement?.classList.contains('code-block-wrapper')) return;
+
+      // 1. 코드가 가로로 스크롤되어도 버튼이 고정될 수 있도록 래퍼 div 생성
+      const wrapper = document.createElement('div');
+      wrapper.className = 'code-block-wrapper relative group my-6';
+
+      // 2. 언어 감지 (Astro/Shiki가 붙여둔 data-language 속성 또는 클래스에서 추출)
+      const codeElement = pre.querySelector('code');
+      const lang = 
+        pre.getAttribute('data-language') || 
+        codeElement?.className.match(/language-(\w+)/)?.[1] || 
+        'code';
+
+      // 3. 우측 상단 툴바 컨테이너 (언어 뱃지 + 복사 버튼)
+      const toolbar = document.createElement('div');
+      toolbar.className = 
+        'absolute top-2 right-2 flex items-center gap-2 z-10 opacity-70 group-hover:opacity-100 transition-opacity duration-200';
+
+      // 4. 언어 뱃지
+      const langBadge = document.createElement('span');
+      langBadge.className = 
+        'text-[10px] font-mono uppercase font-semibold text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700 select-none';
+      langBadge.innerText = lang;
+
+      // 5. 복사 버튼 생성
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 
+        'text-xs flex items-center gap-1 font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 hover:text-white px-2.5 py-1 rounded border border-slate-700 shadow-sm transition-all';
+      copyBtn.innerHTML = `<span>📋</span><span>복사</span>`;
+
+      // 6. 클릭 이벤트: 클립보드 복사 실행
+      copyBtn.addEventListener('click', async () => {
+        const codeToCopy = codeElement ? codeElement.innerText : pre.innerText;
+
+        try {
+          await navigator.clipboard.writeText(codeToCopy);
+          
+          // 복사 성공 시 UI 피드백 (2초간 변경)
+          copyBtn.innerHTML = `<span>✓</span><span class="text-emerald-400 font-semibold">복사됨!</span>`;
+          copyBtn.classList.add('border-emerald-500/50');
+
+          setTimeout(() => {
+            copyBtn.innerHTML = `<span>📋</span><span>복사</span>`;
+            copyBtn.classList.remove('border-emerald-500/50');
+          }, 2000);
+        } catch (err) {
+          console.error('클립보드 복사 실패:', err);
+        }
+      });
+
+      // DOM에 조립하여 삽입
+      toolbar.appendChild(langBadge);
+      toolbar.appendChild(copyBtn);
+
+      pre.parentNode?.insertBefore(wrapper, pre);
+      wrapper.appendChild(toolbar);
+      wrapper.appendChild(pre);
+    });
+  }
+
+  // 페이지 로드 시 및 Astro 페이지 전환 시 실행
+  setupCodeBlocks();
+  document.addEventListener('astro:page-load', setupCodeBlocks);
+</script>

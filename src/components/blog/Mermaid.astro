@@ -1,0 +1,43 @@
+---
+// src/components/blog/Mermaid.astro
+---
+
+<script>
+  async function renderMermaidDiagrams() {
+    // 1. 本문 안에서 mermaid 언어로 작성된 코드 블록 찾기
+    const mermaidBlocks = document.querySelectorAll(
+      'article pre[data-language="mermaid"], article pre.language-mermaid'
+    );
+
+    if (mermaidBlocks.length === 0) return;
+
+    // 2. 가벼운 공식 ESM 모듈로 Mermaid 엔진 불러오기
+    const { default: mermaid } = await import(
+      // @ts-ignore
+      'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs'
+    );
+
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: 'neutral',
+      fontFamily: 'inherit',
+    });
+
+    // 3. 코드 블록을 SVG 다이어그램 컨테이너로 교체하여 렌더링
+    for (const [index, pre] of mermaidBlocks.entries()) {
+      const code = pre.querySelector('code')?.innerText || (pre as HTMLElement).innerText;
+
+      const container = document.createElement('div');
+      container.className = 'mermaid-container flex justify-center my-8 overflow-x-auto';
+      
+      const { svg } = await mermaid.render(`mermaid-svg-${index}`, code);
+      container.innerHTML = svg;
+
+      pre.parentElement?.replaceChild(container, pre);
+    }
+  }
+
+  // 페이지 로드 및 Astro 페이지 전환 시 실행
+  renderMermaidDiagrams();
+  document.addEventListener('astro:page-load', renderMermaidDiagrams);
+</script>

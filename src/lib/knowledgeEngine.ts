@@ -106,3 +106,50 @@ export function findRelatedPosts(
   // 점수가 높은 순(내림차순)으로 정렬하고 상위 N개만 반환
   return results.sort((a, b) => b.score - a.score).slice(0, limit);
 }
+
+/**
+ * 검색 모달용: 글자 수 제한 없이 전체 글에서 키워드를 검색합니다.
+ */
+export function searchAllPosts(
+  query: string,
+  posts: PostIndexItem[],
+  limit: number = 8
+): MatchResult[] {
+  const cleanQuery = query.trim().toLowerCase();
+  if (!cleanQuery) return [];
+
+  const results: MatchResult[] = [];
+
+  for (const post of posts) {
+    let score = 0;
+    let matchedReason = '';
+
+    const lowerTitle = post.title.toLowerCase();
+    const lowerDesc = post.description.toLowerCase();
+
+    // 1순위: 태그 일치 (+15점)
+    const matchedTag = post.tags.find((t) => t.toLowerCase().includes(cleanQuery));
+    if (matchedTag) {
+      score += 15;
+      matchedReason = `#${matchedTag} 태그`;
+    }
+
+    // 2순위: 제목 일치 (+8점)
+    if (lowerTitle.includes(cleanQuery)) {
+      score += 8;
+      if (!matchedReason) matchedReason = '제목 일치';
+    }
+
+    // 3순위: 요약 설명 일치 (+4점)
+    if (lowerDesc.includes(cleanQuery)) {
+      score += 4;
+      if (!matchedReason) matchedReason = '내용 일치';
+    }
+
+    if (score > 0) {
+      results.push({ post, score, matchedReason });
+    }
+  }
+
+  return results.sort((a, b) => b.score - a.score).slice(0, limit);
+}

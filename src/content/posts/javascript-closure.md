@@ -17,3 +17,19 @@ draft: false
 - **실행 컨텍스트:** 코드가 실행되는 환경과 메모리 구조
 - **가비지 컬렉션:** 더 이상 참조되지 않는 메모리를 해제하는 브라우저 엔진의 동작
 - **정보 은닉:** 캡슐화를 통해 변수를 비공개(private)로 유지하는 패턴
+
+## 예제 코드
+
+```javascript
+function createCounter() {
+  let count = 0;
+  return function() {
+    count += 1;
+    return count;
+  };
+}
+
+const counter = createCounter();
+console.log(counter()); // 1
+console.log(counter()); // 2
+```

@@ -1,0 +1,152 @@
+---
+// src/components/interactive/SearchModal.astro
+---
+
+<!-- 전체 화면 검색 모달 오버레이 (기본 hidden) -->
+<div
+  id="search-modal-backdrop"
+  class="fixed inset-0 z-50 hidden bg-slate-900/40 backdrop-blur-sm flex items-start justify-center pt-16 sm:pt-24 px-4"
+>
+  <div
+    id="search-modal-box"
+    class="w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden text-slate-800 animate-in fade-in zoom-in-95 duration-150"
+  >
+    <!-- 검색 입력창 헤더 -->
+    <div class="flex items-center px-4 border-b border-slate-100">
+      <span class="text-slate-400 text-lg mr-3">🔍</span>
+      <input
+        id="search-modal-input"
+        type="text"
+        placeholder="글 제목, 태그, 키워드로 검색... (Esc로 닫기)"
+        class="w-full py-4 text-base bg-transparent outline-none placeholder:text-slate-400 font-medium"
+        autocomplete="off"
+      />
+      <kbd class="hidden sm:inline text-[11px] font-mono bg-slate-100 text-slate-500 px-2 py-0.5 rounded border border-slate-200 select-none">
+        ESC
+      </kbd>
+    </div>
+
+    <!-- 검색 결과 목록 영역 -->
+    <div id="search-modal-results-container" class="max-h-96 overflow-y-auto p-2">
+      <p id="search-empty-msg" class="text-xs text-slate-400 text-center py-8">
+        키워드를 입력하면 연관된 글이 실시간으로 표시됩니다.
+      </p>
+      <ul id="search-results-list" class="space-y-1">
+        <!-- 검색 결과가 여기에 li로 삽입됩니다 -->
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { getSearchIndex, searchAllPosts } from '../../lib/knowledgeEngine';
+
+  const backdrop = document.getElementById('search-modal-backdrop');
+  const modalBox = document.getElementById('search-modal-box');
+  const searchInput = document.getElementById('search-modal-input') as HTMLInputElement;
+  const resultsList = document.getElementById('search-results-list');
+  const emptyMsg = document.getElementById('search-empty-msg');
+
+  // 모달 열기
+  async function openSearchModal() {
+    backdrop?.classList.remove('hidden');
+    searchInput?.focus();
+    // 미리 인덱스 캐싱
+    await getSearchIndex();
+  }
+
+  // 모달 닫기
+  function closeSearchModal() {
+    backdrop?.classList.add('hidden');
+    if (searchInput) searchInput.value = '';
+    if (resultsList) resultsList.innerHTML = '';
+    if (emptyMsg) {
+      emptyMsg.textContent = '키워드를 입력하면 연관된 글이 실시간으로 표시됩니다.';
+      emptyMsg.classList.remove('hidden');
+    }
+  }
+
+  // 전역 단축키 (Ctrl+K / Cmd+K 로 열기, Esc 로 닫기)
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      e.preventDefault();
+      if (backdrop?.classList.contains('hidden')) {
+        openSearchModal();
+      } else {
+        closeSearchModal();
+      }
+    }
+    if (e.key === 'Escape' && !backdrop?.classList.contains('hidden')) {
+      closeSearchModal();
+    }
+  });
+
+  // 배경 클릭 시 닫기
+  backdrop?.addEventListener('mousedown', (e) => {
+    if (modalBox && !modalBox.contains(e.target as Node)) {
+      closeSearchModal();
+    }
+  });
+
+  // 헤더의 돋보기 버튼 클릭 시 열기
+  document.querySelectorAll('.open-search-trigger').forEach((btn) => {
+    btn.addEventListener('click', openSearchModal);
+  });
+
+  // 실시간 타이핑 검색
+  searchInput?.addEventListener('input', async (e) => {
+    const query = (e.target as HTMLInputElement).value.trim();
+    const index = await getSearchIndex();
+
+    if (!query) {
+      if (resultsList) resultsList.innerHTML = '';
+      if (emptyMsg) {
+        emptyMsg.textContent = '키워드를 입력하면 연관된 글이 실시간으로 표시됩니다.';
+        emptyMsg.classList.remove('hidden');
+      }
+      return;
+    }
+
+    const matches = searchAllPosts(query, index);
+
+    if (matches.length === 0) {
+      if (resultsList) resultsList.innerHTML = '';
+      if (emptyMsg) {
+        emptyMsg.textContent = `'${query}'에 대한 검색 결과가 없습니다.`;
+        emptyMsg.classList.remove('hidden');
+      }
+      return;
+    }
+
+    if (emptyMsg) emptyMsg.classList.add('hidden');
+    if (resultsList) {
+      resultsList.innerHTML = matches
+        .map(
+          ({ post, matchedReason }) => `
+          <li>
+            <a 
+              href="/posts/${post.slug}/" 
+              class="block p-3 rounded-xl hover:bg-indigo-50/80 transition-colors border border-transparent hover:border-indigo-100 group"
+            >
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-[10px] font-semibold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
+                  ${matchedReason}
+                </span>
+                <span class="text-xs text-slate-400 font-medium">
+                  ${post.category}
+                </span>
+              </div>
+              <div class="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                ${post.title}
+              </div>
+              <div class="text-xs text-slate-500 line-clamp-1 mt-0.5">
+                ${post.description}
+              </div>
+            </a>
+          </li>
+        `
+        )
+        .join('');
+    }
+  });
+</script>
