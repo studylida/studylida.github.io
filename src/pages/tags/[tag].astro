@@ -4,6 +4,7 @@ import { getCollection } from 'astro:content';
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import CategorySidebar from '../../components/blog/CategorySidebar.astro';
 import PostCard from '../../components/blog/PostCard.astro';
+import { sortPosts } from '../../lib/utils';
 
 export async function getStaticPaths() {
   const allPosts = await getCollection('posts', ({ data }) => !data.draft);
@@ -13,9 +14,7 @@ export async function getStaticPaths() {
 
   // 각 태그별로 해당하는 글들을 필터링하여 페이지 생성
   return uniqueTags.map((tag) => {
-    const filteredPosts = allPosts
-      .filter((post) => post.data.tags.includes(tag))
-      .sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime());
+    const filteredPosts = sortPosts(allPosts.filter((post) => post.data.tags.includes(tag)));
 
     return {
       params: { tag },

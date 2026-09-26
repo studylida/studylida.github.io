@@ -3,17 +3,10 @@
 import { getCollection } from 'astro:content';
 import BaseLayout from '../layouts/BaseLayout.astro';
 import CategorySidebar from '../components/blog/CategorySidebar.astro';
+import { sortPosts, formatDate } from '../lib/utils';
 
 const allPosts = await getCollection('posts', ({ data }) => !data.draft);
-const sortedPosts = allPosts.sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime());
-
-function formatDate(date: Date) {
-  return date.toLocaleDateString('ko-KR', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-}
+const sortedPosts = sortPosts(allPosts);
 ---
 
 <BaseLayout title="studylida 📚 - 기술 블로그">

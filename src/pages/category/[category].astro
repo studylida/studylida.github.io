@@ -4,6 +4,7 @@ import { getCollection } from 'astro:content';
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import CategorySidebar from '../../components/blog/CategorySidebar.astro';
 import PostCard from '../../components/blog/PostCard.astro';
+import { sortPosts } from '../../lib/utils';
 
 export async function getStaticPaths() {
   const allPosts = await getCollection('posts', ({ data }) => !data.draft);
@@ -12,9 +13,7 @@ export async function getStaticPaths() {
   const uniqueCategories = [...new Set(allPosts.map((post) => post.data.category))];
 
   return uniqueCategories.map((category) => {
-    const filteredPosts = allPosts
-      .filter((post) => post.data.category === category)
-      .sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime());
+    const filteredPosts = sortPosts(allPosts.filter((post) => post.data.category === category));
 
     return {
       params: { category },

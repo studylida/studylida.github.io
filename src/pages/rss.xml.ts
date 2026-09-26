@@ -1,11 +1,12 @@
 import rss from '@astrojs/rss';
 import { getCollection } from 'astro:content';
 import type { APIContext } from 'astro';
+import { sortPosts } from '../lib/utils';
 
 export async function GET(context: APIContext) {
   // 1. 임시저장이 아닌 글들을 최신순으로 가져오기
   const posts = await getCollection('posts', ({ data }) => !data.draft);
-  const sortedPosts = posts.sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime());
+  const sortedPosts = sortPosts(posts);
 
   // 2. RSS 규격에 맞게 변환하여 반환
   return rss({

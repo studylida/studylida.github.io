@@ -6,7 +6,7 @@ const postsCollection = defineCollection({
   schema: z.object({
     title: z.string(),
     description: z.string(),
-    pubDate: z.date(),
+    pubDate: z.coerce.date(),
     // 태그 배열 (기본값 빈 배열)
     tags: z.array(z.string()).default([]),
     // 카테고리 (기본값 'General')
