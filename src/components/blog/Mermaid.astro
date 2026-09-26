@@ -2,16 +2,58 @@
 // src/components/blog/Mermaid.astro
 ---
 
+<!-- 1. 전체화면 라이트박스 모달 -->
+<div
+  id="mermaid-modal"
+  class="fixed inset-0 z-50 hidden bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center p-3 sm:p-6 select-none"
+>
+  <div
+    id="mermaid-modal-card"
+    class="w-full max-w-7xl h-[92vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150"
+  >
+    <div class="flex items-center justify-between px-6 py-3 border-b border-slate-200 bg-slate-50/90 z-20">
+      <div class="flex items-center gap-2">
+        <span class="text-base">📊</span>
+        <span class="text-sm font-bold text-slate-800">아키텍처 다이어그램 전체화면 뷰어</span>
+        <span class="text-xs text-slate-400 hidden md:inline ml-2">(드래그하여 이동 / 휠로 줌)</span>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <div class="flex items-center bg-white rounded-lg border border-slate-200 p-0.5 shadow-xs">
+          <button id="modal-zoom-out" type="button" class="px-2.5 py-1 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded">－</button>
+          <button id="modal-zoom-reset" type="button" class="px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded min-w-[50px] text-center">100%</button>
+          <button id="modal-zoom-in" type="button" class="px-2.5 py-1 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded">＋</button>
+        </div>
+        <button
+          id="mermaid-modal-close"
+          type="button"
+          class="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-200/80 hover:bg-slate-300 text-slate-700 transition-colors ml-2"
+          title="닫기 (Esc)"
+        >
+          <span>✕</span>
+          <span>닫기 (Esc)</span>
+        </button>
+      </div>
+    </div>
+
+    <div
+      id="mermaid-modal-viewport"
+      class="flex-1 overflow-hidden relative bg-slate-50/50 flex items-center justify-center cursor-grab active:cursor-grabbing"
+    >
+      <div id="mermaid-modal-content" class="transition-transform duration-75 ease-out flex items-center justify-center"></div>
+    </div>
+  </div>
+</div>
+
 <script>
   async function renderMermaidDiagrams() {
-    // 1. 本문 안에서 mermaid 언어로 작성된 코드 블록 찾기
     const mermaidBlocks = document.querySelectorAll(
       'article pre[data-language="mermaid"], article pre.language-mermaid'
     );
 
     if (mermaidBlocks.length === 0) return;
 
-    // 2. 가벼운 공식 ESM 모듈로 Mermaid 엔진 불러오기
+    // Mermaid 공식 ESM 모듈 동적 로드
     const { default: mermaid } = await import(
       // @ts-ignore
       'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs'
@@ -21,23 +63,256 @@
       startOnLoad: false,
       theme: 'neutral',
       fontFamily: 'inherit',
+      securityLevel: 'loose',
+      flowchart: {
+        useMaxWidth: false,
+        htmlLabels: true,
+      },
     });
 
-    // 3. 코드 블록을 SVG 다이어그램 컨테이너로 교체하여 렌더링
+    // 모달 관련 요소 및 상태
+    const modal = document.getElementById('mermaid-modal');
+    const modalViewport = document.getElementById('mermaid-modal-viewport');
+    const modalContent = document.getElementById('mermaid-modal-content');
+    const modalClose = document.getElementById('mermaid-modal-close');
+    const modalCard = document.getElementById('mermaid-modal-card');
+    const modalZoomIn = document.getElementById('modal-zoom-in');
+    const modalZoomOut = document.getElementById('modal-zoom-out');
+    const modalZoomReset = document.getElementById('modal-zoom-reset');
+
+    let modalScale = 1;
+    let modalPointX = 0;
+    let modalPointY = 0;
+    let isModalPanning = false;
+    let modalStartX = 0;
+    let modalStartY = 0;
+
+    function applyModalTransform() {
+      if (modalContent) {
+        modalContent.style.transform = `translate(${modalPointX}px, ${modalPointY}px) scale(${modalScale})`;
+      }
+      if (modalZoomReset) modalZoomReset.textContent = `${Math.round(modalScale * 100)}%`;
+    }
+
+    function resetModalTransform() {
+      modalScale = 1;
+      modalPointX = 0;
+      modalPointY = 0;
+      applyModalTransform();
+    }
+
+    modalZoomIn?.addEventListener('click', () => { modalScale = Math.min(4, modalScale + 0.2); applyModalTransform(); });
+    modalZoomOut?.addEventListener('click', () => { modalScale = Math.max(0.3, modalScale - 0.2); applyModalTransform(); });
+    modalZoomReset?.addEventListener('click', resetModalTransform);
+
+    function closeModal() {
+      if (modal) modal.classList.add('hidden');
+      if (modalContent) modalContent.innerHTML = '';
+      resetModalTransform();
+    }
+    modalClose?.addEventListener('click', closeModal);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modal && !modal.classList.contains('hidden')) closeModal();
+    });
+    modal?.addEventListener('mousedown', (e) => {
+      if (modalCard && !modalCard.contains(e.target as Node)) closeModal();
+    });
+
+    modalViewport?.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      isModalPanning = true;
+      modalStartX = e.clientX - modalPointX;
+      modalStartY = e.clientY - modalPointY;
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!isModalPanning) return;
+      modalPointX = e.clientX - modalStartX;
+      modalPointY = e.clientY - modalStartY;
+      applyModalTransform();
+    });
+    window.addEventListener('mouseup', () => { isModalPanning = false; });
+    modalViewport?.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.15 : -0.15;
+      modalScale = Math.min(Math.max(0.3, modalScale + delta), 4.0);
+      applyModalTransform();
+    }, { passive: false });
+
+    // 각 마크다운 다이어그램을 본문 인터랙티브 카드로 조립
     for (const [index, pre] of mermaidBlocks.entries()) {
       const code = pre.querySelector('code')?.innerText || (pre as HTMLElement).innerText;
 
-      const container = document.createElement('div');
-      container.className = 'mermaid-container flex justify-center my-8 overflow-x-auto';
-      
-      const { svg } = await mermaid.render(`mermaid-svg-${index}`, code);
-      container.innerHTML = svg;
+      // 1. 전체 카드 래퍼
+      const card = document.createElement('div');
+      card.className = 'mermaid-card my-8 rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden select-none';
 
-      pre.parentElement?.replaceChild(container, pre);
+      // 2. 카드 상단 툴바 (제목 + 줌 컨트롤러 + 소스 복사 버튼 + 전체화면 버튼)
+      const toolbar = document.createElement('div');
+      toolbar.className = 'flex flex-wrap items-center justify-between gap-2 px-4 py-2 border-b border-slate-200 bg-slate-50/90 text-xs text-slate-600';
+      toolbar.innerHTML = `
+        <div class="flex items-center gap-1.5 font-semibold text-slate-800">
+          <span>📊</span>
+          <span>아키텍처 다이어그램</span>
+          <span class="text-[11px] text-slate-400 font-normal hidden sm:inline ml-1">(드래그하여 이동 / 휠로 줌)</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <!-- 인라인 줌 컨트롤러 -->
+          <div class="flex items-center bg-white rounded-md border border-slate-200 shadow-xs">
+            <button type="button" class="card-zoom-out px-2 py-0.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-l transition-colors" title="축소">－</button>
+            <button type="button" class="card-zoom-reset px-2 py-0.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-100 min-w-[46px] text-center transition-colors" title="100% 리셋">100%</button>
+            <button type="button" class="card-zoom-in px-2 py-0.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-r transition-colors" title="확대">＋</button>
+          </div>
+
+          <!-- ⭐ 다이어그램 원본 소스 복사 버튼 -->
+          <button 
+            type="button" 
+            class="card-copy-btn flex items-center gap-1 px-2.5 py-1 rounded-md bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-medium transition-colors shadow-xs"
+            title="Mermaid 소스 코드 클립보드 복사"
+          >
+            <span>📋</span>
+            <span>코드 복사</span>
+          </button>
+
+          <!-- 전체화면 버튼 -->
+          <button 
+            type="button" 
+            class="card-fullscreen-btn flex items-center gap-1 px-2.5 py-1 rounded-md bg-white hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 text-slate-700 font-medium transition-colors shadow-xs"
+            title="전체화면 모달로 보기"
+          >
+            <span>⛶</span>
+            <span class="hidden sm:inline">전체화면</span>
+          </button>
+        </div>
+      `;
+
+      // 3. 본문 캔버스 뷰포트 (높이 480px, 드래그 및 줌 가능)
+      const viewport = document.createElement('div');
+      viewport.className = 'mermaid-viewport h-[480px] w-full overflow-hidden relative bg-slate-50/30 flex items-center justify-center cursor-grab active:cursor-grabbing';
+
+      const content = document.createElement('div');
+      content.className = 'mermaid-content transition-transform duration-75 ease-out flex items-center justify-center';
+
+      try {
+        const { svg } = await mermaid.render(`mermaid-svg-${index}`, code);
+        content.innerHTML = svg;
+
+        const svgElement = content.querySelector('svg');
+        if (svgElement) {
+          svgElement.style.maxWidth = 'none';
+          svgElement.style.height = 'auto';
+
+          const viewBox = svgElement.getAttribute('viewBox');
+          if (viewBox) {
+            const parts = viewBox.split(/\s+/).map(Number);
+            const naturalWidth = parts[2];
+            if (naturalWidth && naturalWidth > 700) {
+              svgElement.style.minWidth = `${naturalWidth}px`;
+            }
+          }
+        }
+
+        viewport.appendChild(content);
+        card.appendChild(toolbar);
+        card.appendChild(viewport);
+
+        // ⭐ 본문 카드 내 인라인 줌 & 팬 상태 관리
+        let cardScale = 1;
+        let cardPointX = 0;
+        let cardPointY = 0;
+        let isCardPanning = false;
+        let cardStartX = 0;
+        let cardStartY = 0;
+
+        const cardZoomIn = toolbar.querySelector('.card-zoom-in');
+        const cardZoomOut = toolbar.querySelector('.card-zoom-out');
+        const cardZoomReset = toolbar.querySelector('.card-zoom-reset') as HTMLElement;
+        const cardCopyBtn = toolbar.querySelector('.card-copy-btn');
+        const cardFullscreenBtn = toolbar.querySelector('.card-fullscreen-btn');
+
+        function applyCardTransform() {
+          content.style.transform = `translate(${cardPointX}px, ${cardPointY}px) scale(${cardScale})`;
+          if (cardZoomReset) cardZoomReset.textContent = `${Math.round(cardScale * 100)}%`;
+        }
+
+        function setCardScale(newScale: number) {
+          cardScale = Math.min(Math.max(0.3, newScale), 3.5);
+          applyCardTransform();
+        }
+
+        cardZoomIn?.addEventListener('click', () => setCardScale(cardScale + 0.2));
+        cardZoomOut?.addEventListener('click', () => setCardScale(cardScale - 0.2));
+        cardZoomReset?.addEventListener('click', () => {
+          cardScale = 1;
+          cardPointX = 0;
+          cardPointY = 0;
+          applyCardTransform();
+        });
+
+        // 본문 캔버스 마우스 드래그 (Pan)
+        viewport.addEventListener('mousedown', (e) => {
+          if (e.button !== 0) return;
+          isCardPanning = true;
+          cardStartX = e.clientX - cardPointX;
+          cardStartY = e.clientY - cardPointY;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+          if (!isCardPanning) return;
+          cardPointX = e.clientX - cardStartX;
+          cardPointY = e.clientY - cardStartY;
+          applyCardTransform();
+        });
+
+        window.addEventListener('mouseup', () => {
+          isCardPanning = false;
+        });
+
+        // 본문 캔버스 휠 줌 (Wheel Zoom)
+        viewport.addEventListener('wheel', (e) => {
+          e.preventDefault();
+          const delta = e.deltaY < 0 ? 0.12 : -0.12;
+          setCardScale(cardScale + delta);
+        }, { passive: false });
+
+        // ⭐ 다이어그램 소스 코드 복사 기능
+        cardCopyBtn?.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(code);
+            cardCopyBtn.innerHTML = `<span>✓</span><span class="text-emerald-500 font-semibold">복사됨!</span>`;
+            setTimeout(() => {
+              cardCopyBtn.innerHTML = `<span>📋</span><span>코드 복사</span>`;
+            }, 2000);
+          } catch (err) {
+            console.error('클립보드 복사 실패:', err);
+          }
+        });
+
+        // 전체화면 모달 열기
+        cardFullscreenBtn?.addEventListener('click', () => {
+          if (modal && modalContent) {
+            modalContent.innerHTML = svg;
+            const modalSvg = modalContent.querySelector('svg');
+            if (modalSvg) {
+              modalSvg.style.maxWidth = 'none';
+              modalSvg.style.height = 'auto';
+              modalSvg.style.minWidth = '900px';
+            }
+            resetModalTransform();
+            modal.classList.remove('hidden');
+          }
+        });
+
+        // 돔 교체
+        const targetToReplace = pre.parentElement?.classList.contains('code-block-wrapper')
+          ? pre.parentElement
+          : pre;
+        targetToReplace.parentElement?.replaceChild(card, targetToReplace);
+      } catch (err) {
+        console.error('Mermaid render error:', err);
+      }
     }
   }
 
-  // 페이지 로드 및 Astro 페이지 전환 시 실행
   renderMermaidDiagrams();
   document.addEventListener('astro:page-load', renderMermaidDiagrams);
 </script>

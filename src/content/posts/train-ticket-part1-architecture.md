@@ -7,7 +7,7 @@ category: "Architecture"
 draft: false
 ---
 
-# [Train Ticket 완벽 정복 1편] 아키텍처 청사진과 인프라 뼈대: 46개 마이크로서비스의 세계관과 코드의 척추(ts-common)
+# [Train Ticket 완벽 정복 1편]
 
 > **연재 순서**:  
 > **▶ [제1편] 아키텍처 청사진 & 인프라 뼈대 (System Overview & ts-common)**  
@@ -21,7 +21,7 @@ draft: false
 
 ---
 
-## 1. 프롤로그: 왜 Train Ticket을 분석해야 하는가?
+## 1. 프롤로그: 왜 Train Ticket인가?
 
 넷플릭스의 Eureka와 Spring Cloud, 쿠버네티스(Kubernetes)와 서비스 메시(Istio)가 엔터프라이즈의 표준으로 자리 잡았지만, 실제로 **수십 개의 마이크로서비스가 맞물려 돌아가는 초대형 실전 시스템**의 내부 코드를 투명하게 들여다볼 수 있는 기회는 흔치 않다. 대다수의 튜토리얼 예제는 2~3개의 토이 서비스 수준에 머물러 있어, 분산 트랜잭션, 데이터 동기화 지연, 폴리글랏 퍼시스턴스, 서비스 간 의존성 지옥(Dependency Hell) 같은 실제 MSA의 민낯을 체감하기 어렵다.
 
@@ -42,7 +42,7 @@ Train Ticket은 인류 역사상 최대 규모의 정기적 인구 이동이라 
 
 ---
 
-## 2. 전체 46개 마이크로서비스의 7대 도메인 조감도 (Topology)
+## 2. 7대 도메인 아키텍처 조감도
 
 Train Ticket은 46개의 서비스가 무질서하게 흩어져 있는 것이 아니라, 명확한 비즈니스 경계(Bounded Context)에 따라 **7대 도메인**으로 정교하게 분할되어 있다.
 
@@ -137,7 +137,7 @@ flowchart TD
 
 ---
 
-## 3. 인프라 통신 뼈대: Nacos와 2단계 라우팅(2-Tiered Routing) 실전 구현 가이드
+## 3. 인프라 통신 뼈대와 Nacos 라우팅
 
 46개 마이크로서비스가 맞물려 돌아가는 환경에서 외부 트래픽 인그레스와 내부망 통신은 완전히 분리되어야 한다. Train Ticket은 **2단계 라우팅(Two-Tiered Routing)** 아키텍처를 채택했다.
 
@@ -263,7 +263,7 @@ public Ticket dispatchSeat(Seat seatRequest, HttpHeaders httpHeaders) {
 
 ---
 
-## 4. 폴리글랏 퍼시스턴스: 왜 24개는 MongoDB이고, 2개는 MySQL인가?
+## 4. 폴리글랏 퍼시스턴스 분할 전략
 
 Train Ticket의 영속성 계층(Persistence Layer)은 분산 시스템 설계의 정석적인 교훈인 **폴리글랏 퍼시스턴스(Polyglot Persistence)**의 표본이다. 시스템 초기 설계 기준, 총 26개의 데이터베이스 중 **24개는 MongoDB**를, 단 **2개는 MySQL**을 선택했다.
 
@@ -294,7 +294,7 @@ Train Ticket의 영속성 계층(Persistence Layer)은 분산 시스템 설계�
 
 ---
 
-## 5. 코드 레벨 분석: 마이크로서비스의 척추 `ts-common`
+## 5. 핵심 공통 모듈: ts-common 분석
 
 `ts-common`은 46개 마이크로서비스 전역에서 공통 라이브러리(`jar`) 형태로 임포트되는 모듈이다. 모든 DTO 규격, 보안 필터, 상태 머신 Enum, 날짜 유틸이 이곳에 집약되어 있다.
 
@@ -558,7 +558,7 @@ public static <T> T conveterObject(Object srcObject, Class<T> destObjectType) { 
 
 ---
 
-## 6. 제1편을 마치며: 엔지니어링 인사이트와 다음 편 예고
+## 6. 엔지니어링 인사이트 및 결론
 
 제1편을 통해 살펴본 Train Ticket의 뼈대는 우리에게 실전 마이크로서비스 설계에 대한 4가지 핵심 교훈을 던져준다:
 

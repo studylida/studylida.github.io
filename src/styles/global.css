@@ -6,3 +6,18 @@
 html {
   scroll-behavior: smooth;
 }
+
+/* 한국어 단어 단위 줄바꿈 및 가독성 최적화 */
+article,
+.prose {
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+.prose h1,
+.prose h2,
+.prose h3 {
+  word-break: keep-all;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+}

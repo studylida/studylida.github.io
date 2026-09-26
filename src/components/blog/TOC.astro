@@ -15,19 +15,20 @@ const filteredHeadings = headings.filter((h) => h.depth === 2 || h.depth === 3);
 {filteredHeadings.length > 0 && (
   <!-- ⭐ aside 태그 자체에 sticky top-24 self-start 적용! -->
   <aside class="hidden xl:block w-64 shrink-0 sticky top-24 self-start">
-    <div class="space-y-3 p-4 bg-white/80 backdrop-blur rounded-xl border border-slate-200 shadow-sm">
-      <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+    <div class="flex flex-col max-h-[calc(100vh-8rem)] p-4 bg-white/80 backdrop-blur rounded-xl border border-slate-200 shadow-sm">
+      <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5 shrink-0 mb-3">
         <span>📑</span>
         <span>목차 (On this page)</span>
       </h3>
-      <nav class="toc-nav">
+      <nav class="toc-nav overflow-y-auto overscroll-contain pr-1 custom-scrollbar">
         <ul class="space-y-1.5 text-xs text-slate-600">
           {filteredHeadings.map((heading) => (
             <li class={heading.depth === 3 ? 'pl-3' : ''}>
               <a
                 href={`#${heading.slug}`}
                 data-slug={heading.slug}
-                class="toc-link block py-1 hover:text-indigo-600 transition-colors line-clamp-1"
+                title={heading.text}
+                class="toc-link block py-1 hover:text-indigo-600 transition-colors line-clamp-2 break-keep leading-snug rounded px-1 -mx-1"
               >
                 {heading.text}
               </a>
@@ -39,27 +40,64 @@ const filteredHeadings = headings.filter((h) => h.depth === 2 || h.depth === 3);
   </aside>
 )}
 
-<script>
-  // 현재 읽고 있는 제목 위치를 감지하여 목차의 텍스트 색상을 실시간으로 바꿔주는 스크립트
-  const observer = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          const id = entry.target.getAttribute('id');
-          document.querySelectorAll('.toc-link').forEach((link) => {
-            if (link.getAttribute('data-slug') === id) {
-              link.classList.add('text-indigo-600', 'font-bold');
-            } else {
-              link.classList.remove('text-indigo-600', 'font-bold');
-            }
-          });
-        }
-      });
-    },
-    { rootMargin: '-80px 0px -70% 0px' }
-  );
+<style>
+  /* TOC 전용 얇고 미려한 스크롤바 */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: #cbd5e1;
+    border-radius: 9999px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: #94a3b8;
+  }
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
+</style>
 
-  document.querySelectorAll('article h2, article h3').forEach((heading) => {
-    observer.observe(heading);
-  });
+<script>
+  let currentObserver: IntersectionObserver | null = null;
+
+  function initTOC() {
+    if (currentObserver) {
+      currentObserver.disconnect();
+    }
+
+    const headingElements = document.querySelectorAll('article h2, article h3');
+    if (!headingElements.length) return;
+
+    currentObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const id = entry.target.getAttribute('id');
+            document.querySelectorAll('.toc-link').forEach((link) => {
+              if (link.getAttribute('data-slug') === id) {
+                link.classList.add('text-indigo-600', 'font-bold', 'bg-indigo-50/50');
+                // 긴 목차에서 현재 활성화된 항목이 보이도록 부드럽게 스크롤
+                link.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+              } else {
+                link.classList.remove('text-indigo-600', 'font-bold', 'bg-indigo-50/50');
+              }
+            });
+          }
+        });
+      },
+      { rootMargin: '-80px 0px -70% 0px' }
+    );
+
+    headingElements.forEach((heading) => {
+      currentObserver?.observe(heading);
+    });
+  }
+
+  // 초기 로드 및 Astro 페이지 전환 시 실행
+  initTOC();
+  document.addEventListener('astro:page-load', initTOC);
 </script>

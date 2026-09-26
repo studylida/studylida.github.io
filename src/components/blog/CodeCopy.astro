@@ -11,6 +11,15 @@
       // 이미 복사 버튼이 설치되어 있다면 중복 실행 방지
       if (pre.parentElement?.classList.contains('code-block-wrapper')) return;
 
+      // ⭐ Mermaid 다이어그램은 시각화 그래픽이므로 코드 복사 대상에서 제외
+      if (
+        pre.getAttribute('data-language') === 'mermaid' ||
+        pre.classList.contains('language-mermaid') ||
+        pre.querySelector('code')?.classList.contains('language-mermaid')
+      ) {
+        return;
+      }
+
       // 1. 코드가 가로로 스크롤되어도 버튼이 고정될 수 있도록 래퍼 div 생성
       const wrapper = document.createElement('div');
       wrapper.className = 'code-block-wrapper relative group my-6';
