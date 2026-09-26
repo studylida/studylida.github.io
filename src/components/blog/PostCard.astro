@@ -1,27 +1,24 @@
 ---
 // src/components/blog/PostCard.astro
 import type { CollectionEntry } from 'astro:content';
+import { formatDate } from '../../lib/utils';
 
 interface Props {
   post: CollectionEntry<'posts'>;
 }
 
 const { post } = Astro.props;
-
-function formatDate(date: Date) {
-  return date.toLocaleDateString('ko-KR', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-}
 ---
 
-<article class="bg-white rounded-xl p-6 shadow-sm border border-slate-200 hover:shadow-md hover:border-indigo-200 transition-all group">
+<article
+  class="post-card bg-white rounded-xl p-6 shadow-sm border border-slate-200 hover:shadow-md hover:border-indigo-200 transition-all group cursor-pointer relative"
+  data-url={`/posts/${post.slug}/`}
+>
   <div class="flex items-center gap-3 text-xs text-slate-500 mb-2">
     <a 
       href={`/category/${post.data.category}/`}
-      class="font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full hover:bg-indigo-100 transition-colors"
+      class="font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full hover:bg-indigo-100 transition-colors relative z-10"
+      title={`${post.data.category} 카테고리 글 모아보기`}
     >
       {post.data.category}
     </a>
@@ -31,7 +28,7 @@ function formatDate(date: Date) {
   </div>
 
   <h3 class="text-xl font-bold text-slate-900 group-hover:text-indigo-600 transition-colors mb-2">
-    <a href={`/posts/${post.slug}/`}>
+    <a href={`/posts/${post.slug}/`} class="hover:underline focus:outline-none">
       {post.data.title}
     </a>
   </h3>
@@ -40,14 +37,54 @@ function formatDate(date: Date) {
     {post.data.description}
   </p>
 
-  <div class="flex flex-wrap gap-1.5">
+  <div class="flex flex-wrap gap-1.5 relative z-10">
     {post.data.tags.map((tag) => (
       <a
         href={`/tags/${tag}/`}
         class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+        title={`#${tag} 태그 글 모아보기`}
       >
         #{tag}
       </a>
     ))}
   </div>
 </article>
+
+<script>
+  function setupPostCardClicks() {
+    // 중복 리스너 등록 방지
+    if ((window as any).__postCardListenerAttached) return;
+    (window as any).__postCardListenerAttached = true;
+
+    function handleCardNavigation(e: MouseEvent) {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+
+      const card = target.closest('.post-card') as HTMLElement | null;
+      if (!card) return;
+
+      // 1. 카테고리 배지나 태그 링크 등 내부 <a> 태그를 직접 클릭한 경우 본래 링크 동작 허용
+      if (target.closest('a')) return;
+
+      // 2. 사용자가 텍스트를 드래그하여 선택한 경우(연관 글 팝오버 등), 페이지 이동 방지
+      const selection = window.getSelection();
+      if (selection && selection.toString().trim().length > 0) return;
+
+      const url = card.getAttribute('data-url');
+      if (!url) return;
+
+      // 3. 휠 클릭(e.button === 1)이나 Ctrl/Cmd + 클릭 시 새 탭으로 열기
+      if (e.button === 1 || e.ctrlKey || e.metaKey) {
+        window.open(url, '_blank');
+      } else if (e.button === 0) {
+        window.location.href = url;
+      }
+    }
+
+    document.addEventListener('click', handleCardNavigation);
+    document.addEventListener('auxclick', handleCardNavigation);
+  }
+
+  setupPostCardClicks();
+  document.addEventListener('astro:page-load', setupPostCardClicks);
+</script>
