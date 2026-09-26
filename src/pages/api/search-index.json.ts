@@ -9,7 +9,7 @@ export async function GET() {
 
   // 2. 검색 및 매칭에 꼭 필요한 가벼운 데이터만 선별 (용량 최소화)
   const searchIndex = posts.map((post) => ({
-    slug: post.slug,
+    slug: post.id,
     title: post.data.title,
     description: post.data.description,
     tags: post.data.tags,

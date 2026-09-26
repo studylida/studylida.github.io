@@ -1,6 +1,6 @@
 ---
 // src/pages/posts/[...slug].astro
-import { getCollection } from 'astro:content';
+import { getCollection, render } from 'astro:content';
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import TOC from '../../components/blog/TOC.astro';
 import CodeCopy from '../../components/blog/CodeCopy.astro'; 
@@ -20,7 +20,7 @@ export async function getStaticPaths() {
     const prevPost = index < sortedPosts.length - 1 ? sortedPosts[index + 1] : null;
 
     return {
-      params: { slug: post.slug },
+      params: { slug: post.id },
       props: { post, prevPost, nextPost },
     };
   });
@@ -28,7 +28,7 @@ export async function getStaticPaths() {
 
 // props에서 post와 함께 prevPost, nextPost를 꺼냅니다!
 const { post, prevPost, nextPost } = Astro.props;
-const { Content, headings } = await post.render();
+const { Content, headings } = await render(post);
 ---
 
 <BaseLayout title={post.data.title} description={post.data.description}>
@@ -92,7 +92,7 @@ const { Content, headings } = await post.render();
         <nav class="mt-16 pt-8 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-4">
           {prevPost ? (
             <a
-              href={`/posts/${prevPost.slug}/`}
+              href={`/posts/${prevPost.id}/`}
               class="group p-4 rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-sm transition-all bg-white flex flex-col justify-between"
             >
               <span class="text-xs text-slate-400 font-semibold mb-1 flex items-center gap-1">
@@ -108,7 +108,7 @@ const { Content, headings } = await post.render();
 
           {nextPost && (
             <a
-              href={`/posts/${nextPost.slug}/`}
+              href={`/posts/${nextPost.id}/`}
               class="group p-4 rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-sm transition-all bg-white flex flex-col justify-between text-right sm:col-start-2"
             >
               <span class="text-xs text-slate-400 font-semibold mb-1 flex items-center justify-end gap-1">

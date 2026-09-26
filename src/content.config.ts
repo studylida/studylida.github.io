@@ -1,4 +1,5 @@
 import { defineCollection, z } from 'astro:content';
+import { glob } from 'astro/loaders';
 
 /**
  * YAML의 따옴표 유무(Date vs String) 및 빌드 환경(로컬 KST vs CI/CD UTC)에 무관하게
@@ -36,9 +37,9 @@ export function parseKSTDate(val: unknown): Date {
   return new Date(val as any);
 }
 
-// 게시글(posts) 컬렉션의 메타데이터(Frontmatter) 스키마 정의
-const postsCollection = defineCollection({
-  type: 'content', // 마크다운/MDX 콘텐츠
+// 게시글(posts) 컬렉션의 메타데이터(Frontmatter) 스키마 정의 (Astro 5 Content Layer)
+const posts = defineCollection({
+  loader: glob({ pattern: '**/*.{md,mdx}', base: './src/content/posts' }),
   schema: z.object({
     title: z.string(),
     description: z.string(),
@@ -64,7 +65,7 @@ const postsCollection = defineCollection({
   })),
 });
 
-// Astro가 인식할 수 있도록 collections 객체로 내보내기
+// Astro 5 Content Layer 표준 collections 내보내기
 export const collections = {
-  posts: postsCollection,
+  posts,
 };
