@@ -9,7 +9,8 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "lint:tone": "node scripts/check-tone.js"
   },
   "dependencies": {
     "@astrojs/rss": "^4.0.19",

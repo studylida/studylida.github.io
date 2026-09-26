@@ -21,9 +21,9 @@ draft: false
 
 ---
 
-## 1. 프롤로그: 왜 Train Ticket인가?
+## 1. Train Ticket 벤치마크 개요
 
-넷플릭스의 Eureka와 Spring Cloud, 쿠버네티스(Kubernetes)와 서비스 메시(Istio)가 엔터프라이즈의 표준으로 자리 잡았지만, 실제로 **수십 개의 마이크로서비스가 맞물려 돌아가는 초대형 실전 시스템**의 내부 코드를 투명하게 들여다볼 수 있는 기회는 흔치 않다. 대다수의 튜토리얼 예제는 2~3개의 토이 서비스 수준에 머물러 있어, 분산 트랜잭션, 데이터 동기화 지연, 폴리글랏 퍼시스턴스, 서비스 간 의존성 지옥(Dependency Hell) 같은 실제 MSA의 민낯을 체감하기 어렵다.
+넷플릭스의 Eureka와 Spring Cloud, 쿠버네티스(Kubernetes)와 서비스 메시(Istio)가 엔터프라이즈의 표준으로 자리 잡았지만, 실제로 **수십 개의 마이크로서비스가 맞물려 돌아가는 초대형 실전 시스템**의 내부 코드를 투명하게 들여다볼 수 있는 기회는 흔치 않다. 대다수의 튜토리얼 예제는 2~3개의 토이 서비스 수준에 머물러 있어, 분산 트랜잭션, 데이터 동기화 지연, 폴리글랏 퍼시스턴스, 서비스 간 의존성 복잡도(Dependency Hell) 같은 실무 환경의 구조적 문제를 체감하기 어렵다.
 
 이러한 갈증을 완벽하게 해소해 주는 오픈소스 프로젝트가 바로 중국 푸단대학교(Fudan University) SELab/CodeWisdom 팀이 개발한 **Train Ticket**이다.
 
@@ -237,7 +237,7 @@ public class PreserveApplication {
 }
 ```
 
-> **🔍 `@LoadBalanced`의 마법**  
+> **🔍 `@LoadBalanced`의 내부 동작 원리**  
 > `@LoadBalanced`는 `RestTemplate`에 `LoadBalancerInterceptor`를 주입한다. 개발자가 `http://ts-seat-service/...`로 요청을 날리면 인터셉터가 가로채 Nacos 캐시에서 실제 물리 IP(예: `10.244.3.40:12345`)를 찾아 URI를 재조합(Reconstruct)한다. 이 어노테이션이 없으면 일반 도메인으로 인식하여 `UnknownHostException`이 발생한다.
 
 #### ③ 서비스 간 직접 호출 및 타입 안전성 확보 (`PreserveServiceImpl.java`)
@@ -294,7 +294,7 @@ Train Ticket의 영속성 계층(Persistence Layer)은 분산 시스템 설계�
 
 ---
 
-## 5. 핵심 공통 모듈: ts-common 분석
+## 5. ts-common 공통 모듈 해부
 
 `ts-common`은 46개 마이크로서비스 전역에서 공통 라이브러리(`jar`) 형태로 임포트되는 모듈이다. 모든 DTO 규격, 보안 필터, 상태 머신 Enum, 날짜 유틸이 이곳에 집약되어 있다.
 
@@ -328,7 +328,7 @@ public class Response<T> {
 #### ⚠️ 엔지니어링 주의점:
 * `status` 필드는 HTTP 상태 코드(200, 400, 500)가 아니라 **자체 비즈니스 플래그(`1: 성공, 0: 실패`)**다.
 * 스프링 컨트롤러가 이 객체를 반환할 때 HTTP 헤더의 응답 코드는 거의 항상 `200 OK`로 내려온다.
-* **함정**: 하위 서비스 호출자가 단순히 HTTP 상태 코드(`response.getStatusCode().is2xxSuccessful()`)만 검사하고 넘어가면, 비즈니스 검증에 실패하여 `status == 0`으로 내려온 에러를 **성공으로 오판하는 대형 참사**가 일어난다. 반드시 페이로드를 언래핑하여 `response.getStatus() == 1`을 검증해야 한다.
+* **함정**: 하위 서비스 호출자가 단순히 HTTP 상태 코드(`response.getStatusCode().is2xxSuccessful()`)만 검사하고 넘어가면, 비즈니스 검증에 실패하여 `status == 0`으로 내려온 에러를 **성공으로 오판하는 심각한 로직 결함**이 발생한다. 반드시 페이로드를 언래핑하여 `response.getStatus() == 1`을 검증해야 한다.
 
 ---
 
@@ -524,7 +524,7 @@ try {
 
 ---
 
-### 7) `JsonUtils.java`의 성능 참사와 NPE 유발
+### 7) `JsonUtils.java`의 비효율적 직렬화와 NPE 발생 원인
 
 ```java
 // ts-common/src/main/java/edu/fudan/common/util/JsonUtils.java
@@ -546,15 +546,15 @@ public static <T> T conveterObject(Object srcObject, Class<T> destObjectType) { 
 ```
 
 * **GC 오버헤드**: Jackson의 `ObjectMapper`는 Thread-safe하며 생성 시 수많은 직렬화 캐시와 리플렉션 메타데이터를 초기화하므로 객체 생성 비용이 극도로 비싸다. 이를 `static final` 싱글톤으로 재사용하지 않고 JSON 직렬화/역직렬화 메서드가 불릴 때마다 `new`로 생성하여 극심한 힙 메모리 낭비와 **Young Gen GC 스톱더월드(STW)** 지연을 초래한다.
-* **오타 및 예외 삼킴**: 메서드 명에 명백한 오타(`conveterObject`)가 방치되어 있을 뿐 아니라, 객체 변환 시 JSON 문자열로 직렬화했다가 다시 역직렬화하는 비효율을 저지른다. 또한 직렬화 실패 시 예외를 전파하지 않고 `null`을 반환하여 호출 측에서 원인을 알 수 없는 `NullPointerException`을 연쇄 폭발시킨다.
+* **오타 및 예외 삼킴**: 메서드 명에 명백한 오타(`conveterObject`)가 방치되어 있을 뿐 아니라, 객체 변환 시 JSON 문자열로 직렬화했다가 다시 역직렬화하는 비효율을 저지른다. 또한 직렬화 실패 시 예외를 전파하지 않고 `null`을 반환하여 호출 측으로 `NullPointerException`이 연쇄 전파된다.
 
 ---
 
 ### 8) 44개 도메인 모델을 한 바구니에 담은 '모놀리식 공통 라이브러리'
 
-* `ts-common/src/main/java/edu/fudan/common/entity/`를 들여다보면 `Order`, `Route`, `Seat`, `Food`, `Station`, `User` 등 **시스템 내의 거의 모든 핵심 엔티티 44개가 한 패키지에 우겨넣어져 있다.**
+* `ts-common/src/main/java/edu/fudan/common/entity/`를 들여다보면 `Order`, `Route`, `Seat`, `Food`, `Station`, `User` 등 **시스템 내의 거의 모든 핵심 엔티티 44개가 단일 패키지에 결합되어 있다.**
 * 이는 마이크로서비스 간의 경계(Bounded Context)를 허물고 서비스 간 느슨한 결합(Decoupling)을 파괴하는 **모놀리식 공유 커널(Shared Kernel) 안티 패턴**이다.
-* 단지 `Order` 엔티티의 필드 하나를 수정했을 뿐인데, 티켓 주문과 아무런 연관이 없는 `ts-avatar-service`나 `ts-station-service`까지 `ts-common` 의존성 충돌로 인해 재컴파일 및 영향도 검증을 받아야 하는 의존성 지옥을 유발한다.
+* 단지 `Order` 엔티티의 필드 하나를 수정했을 뿐인데, 티켓 주문과 아무런 연관이 없는 `ts-avatar-service`나 `ts-station-service`까지 `ts-common` 의존성 충돌로 인해 재컴파일 및 영향도 검증을 받아야 하므로, 시스템 결합도를 비정상적으로 높인다.
 
 ---
 
@@ -568,7 +568,7 @@ public static <T> T conveterObject(Object srcObject, Class<T> destObjectType) { 
 4. **공통 모듈(`common`)의 무거움과 안티 패턴 경계**: 
    * 공통 모듈에 포함된 작은 유틸리티 메서드의 '조용한 예외 처리(`new Date(0)`)'나 '기본값 폴백(`NOTPAID`)'은 분산 환경 전체로 전파되어 추적하기 매우 힘든 유령 버그를 만들어낸다.
    * `JWTFilter`와 `TokenException`처럼 예외 상속 계층이 어긋나면 HTTP 401이 500 에러로 왜곡되며, `JsonUtils`처럼 무거운 유틸 객체를 매번 `new`로 생성하면 심각한 GC 병목을 유발한다.
-   * 무엇보다 전 도메인 엔티티 44개를 공통 모듈에 한데 묶는 모놀리식 라이브러리 설계는 서비스 간의 독립 배포를 저해하는 가장 큰 족쇄가 된다.
+   * 무엇보다 전 도메인 엔티티 44개를 공통 모듈에 한데 묶는 모놀리식 라이브러리 설계는 서비스 간의 독립 배포를 심각하게 저해하는 요인이 된다.
 
 ---
 
