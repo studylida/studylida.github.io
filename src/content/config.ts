@@ -45,11 +45,23 @@ const postsCollection = defineCollection({
     pubDate: z.preprocess(parseKSTDate, z.date()),
     // 태그 배열 (기본값 빈 배열)
     tags: z.array(z.string()).default([]),
-    // 카테고리 (기본값 'General')
-    category: z.string().default('General'),
+    // 다중 카테고리 배열 (categories 또는 category 허용, 항상 string[]으로 정규화)
+    categories: z.preprocess((val) => {
+      if (typeof val === 'string' && val.trim().length > 0) return [val.trim()];
+      if (Array.isArray(val)) return val.map((v) => String(v).trim()).filter(Boolean);
+      return undefined;
+    }, z.array(z.string()).min(1)).optional(),
+    category: z.preprocess((val) => {
+      if (typeof val === 'string' && val.trim().length > 0) return [val.trim()];
+      if (Array.isArray(val)) return val.map((v) => String(v).trim()).filter(Boolean);
+      return undefined;
+    }, z.array(z.string()).min(1)).optional(),
     // 임시 저장 여부 (true면 블로그 목록에서 숨김)
     draft: z.boolean().default(false),
-  }),
+  }).transform((data) => ({
+    ...data,
+    categories: data.categories || data.category || ['General'],
+  })),
 });
 
 // Astro가 인식할 수 있도록 collections 객체로 내보내기

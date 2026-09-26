@@ -9,11 +9,13 @@ import { sortPosts } from '../../lib/utils';
 export async function getStaticPaths() {
   const allPosts = await getCollection('posts', ({ data }) => !data.draft);
 
-  // 모든 글에 존재하는 고유한 카테고리 목록 추출
-  const uniqueCategories = [...new Set(allPosts.map((post) => post.data.category))];
+  // 모든 글에 존재하는 고유한 카테고리 목록 추출 (다중 카테고리 flatMap)
+  const uniqueCategories = [...new Set(allPosts.flatMap((post) => post.data.categories))];
 
   return uniqueCategories.map((category) => {
-    const filteredPosts = sortPosts(allPosts.filter((post) => post.data.category === category));
+    const filteredPosts = sortPosts(
+      allPosts.filter((post) => post.data.categories.includes(category))
+    );
 
     return {
       params: { category },

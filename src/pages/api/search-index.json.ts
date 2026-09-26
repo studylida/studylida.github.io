@@ -13,7 +13,8 @@ export async function GET() {
     title: post.data.title,
     description: post.data.description,
     tags: post.data.tags,
-    category: post.data.category,
+    categories: post.data.categories,
+    category: post.data.categories[0] || 'General',
   }));
 
   // 3. 브라우저가 JSON으로 인식할 수 있도록 반환

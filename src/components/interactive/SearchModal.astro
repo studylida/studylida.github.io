@@ -133,7 +133,7 @@
                   ${matchedReason}
                 </span>
                 <span class="text-xs text-slate-400 font-medium">
-                  ${post.category}
+                  ${(post.categories || (post.category ? [post.category] : [])).join(' · ')}
                 </span>
               </div>
               <div class="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">

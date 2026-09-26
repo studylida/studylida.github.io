@@ -12,10 +12,11 @@ const { activeCategory, activeTag } = Astro.props;
 // 모든 발행된 글 가져오기
 const posts = await getCollection('posts', ({ data }) => !data.draft);
 
-// 1. 카테고리별 글 개수 집계 (예: { Frontend: 1, CS: 1 })
+// 1. 카테고리별 글 개수 집계 (다중 카테고리 지원)
 const categoryMap = posts.reduce((acc, post) => {
-  const cat = post.data.category;
-  acc[cat] = (acc[cat] || 0) + 1;
+  post.data.categories.forEach((cat) => {
+    acc[cat] = (acc[cat] || 0) + 1;
+  });
   return acc;
 }, {} as Record<string, number>);
 

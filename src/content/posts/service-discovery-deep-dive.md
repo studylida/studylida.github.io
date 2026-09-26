@@ -2,8 +2,8 @@
 title: "서비스 디스커버리의 원리와 아키텍처 패턴 해부"
 description: "모놀리스에서 클라우드 마이크로서비스로의 진화 과정에서 등장한 서비스 디스커버리의 탄생 배경, DNS와 L4/L7의 한계, 클라이언트/서버 사이드 패턴 및 K8s·서비스 메시의 미래를 심층 분석한다."
 pubDate: "2026-09-27 03:15:00"
-tags: ["ServiceDiscovery", "MSA", "Architecture", "Kubernetes", "SpringCloud"]
-category: "Architecture"
+tags: ["ServiceDiscovery", "MSA", "Registry", "CircuitBreaker", "Kubernetes", "ServiceMesh", "Architecture", "Network"]
+categories: ["Architecture", "Network"]
 draft: false
 ---
 

@@ -14,15 +14,19 @@ const { post } = Astro.props;
   class="post-card bg-white rounded-xl p-6 shadow-sm border border-slate-200 hover:shadow-md hover:border-indigo-200 transition-all group cursor-pointer relative"
   data-url={`/posts/${post.slug}/`}
 >
-  <div class="flex items-center gap-3 text-xs text-slate-500 mb-2">
-    <a 
-      href={`/category/${post.data.category}/`}
-      class="font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full hover:bg-indigo-100 transition-colors relative z-10"
-      title={`${post.data.category} 카테고리 글 모아보기`}
-    >
-      {post.data.category}
-    </a>
-    <time datetime={post.data.pubDate.toISOString()}>
+  <div class="flex items-center justify-between gap-3 text-xs text-slate-500 mb-2.5">
+    <div class="flex flex-wrap items-center gap-1.5 relative z-10">
+      {post.data.categories.map((cat) => (
+        <a 
+          href={`/category/${cat}/`}
+          class="font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full hover:bg-indigo-100 transition-colors"
+          title={`${cat} 카테고리 글 모아보기`}
+        >
+          {cat}
+        </a>
+      ))}
+    </div>
+    <time datetime={post.data.pubDate.toISOString()} class="shrink-0 text-slate-400">
       {formatDate(post.data.pubDate)}
     </time>
   </div>

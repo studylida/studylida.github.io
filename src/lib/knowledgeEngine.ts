@@ -6,7 +6,8 @@ export interface PostIndexItem {
   title: string;
   description: string;
   tags: string[];
-  category: string;
+  categories: string[];
+  category?: string;
 }
 
 // 2. 검색 매칭 결과 타입 정의
@@ -81,6 +82,17 @@ export function findRelatedPosts(
       matchedReason = `#${matchedTag} 태그 일치`;
     }
 
+    // 카테고리 일치 (+12점)
+    const postCategories = post.categories || (post.category ? [post.category] : []);
+    const matchedCategory = postCategories.find((cat) => {
+      const lowerCat = cat.toLowerCase();
+      return lowerCat === cleanQuery || lowerCat.includes(cleanQuery) || cleanQuery.includes(lowerCat);
+    });
+    if (matchedCategory && !matchedReason) {
+      score += 12;
+      matchedReason = `[${matchedCategory}] 카테고리`;
+    }
+
     // 2순위: 제목에 키워드가 포함되어 있는가? (+8점)
     if (lowerTitle.includes(cleanQuery)) {
       score += 8;
@@ -132,6 +144,14 @@ export function searchAllPosts(
     if (matchedTag) {
       score += 15;
       matchedReason = `#${matchedTag} 태그`;
+    }
+
+    // 카테고리 일치 (+12점)
+    const postCategories = post.categories || (post.category ? [post.category] : []);
+    const matchedCat = postCategories.find((c) => c.toLowerCase().includes(cleanQuery));
+    if (matchedCat && !matchedReason) {
+      score += 12;
+      matchedReason = `[${matchedCat}] 카테고리`;
     }
 
     // 2순위: 제목 일치 (+8점)

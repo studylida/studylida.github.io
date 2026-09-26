@@ -2,8 +2,8 @@
 title: "Nacos 아키텍처와 분산 서비스 디스커버리 해부"
 description: "Spring Cloud 환경에서 Nacos가 서비스 디스커버리와 동적 설정을 처리하는 내부 메커니즘(Distro/Raft, gRPC, @RefreshScope)을 심층 분석한다."
 pubDate: "2026-09-27 02:10:00"
-tags: ["Nacos", "MSA", "ServiceDiscovery", "SpringCloud", "Architecture"]
-category: "Architecture"
+tags: ["Nacos", "ServiceDiscovery", "DynamicConfig", "SpringCloud", "Raft", "Distro", "MSA", "Architecture"]
+categories: ["Architecture"]
 draft: false
 ---
 

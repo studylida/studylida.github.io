@@ -46,13 +46,18 @@ const { Content, headings } = await post.render();
       <!-- 메인 아티클 영역 -->
       <article class="flex-1 min-w-0 max-w-3xl">
         <header class="mb-10 pb-8 border-b border-slate-200">
-          <div class="flex items-center gap-3 text-xs text-slate-500 mb-3">
-            <a 
-              href={`/category/${post.data.category}/`}
-              class="font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full hover:bg-indigo-100 transition-colors"
-            >
-              {post.data.category}
-            </a>
+          <div class="flex flex-wrap items-center gap-2.5 text-xs text-slate-500 mb-3">
+            <div class="flex flex-wrap items-center gap-1.5">
+              {post.data.categories.map((cat) => (
+                <a 
+                  href={`/category/${cat}/`}
+                  class="font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full hover:bg-indigo-100 transition-colors"
+                >
+                  {cat}
+                </a>
+              ))}
+            </div>
+            <span class="text-slate-300">·</span>
             <time datetime={post.data.pubDate.toISOString()}>
               {formatDate(post.data.pubDate)}
             </time>

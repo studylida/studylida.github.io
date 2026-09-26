@@ -2,8 +2,8 @@
 title: "L4 대 L7 로드밸런서의 원리와 아키텍처 해부"
 description: "OSI 계층별 부하 분산의 물리적 차이, L4의 패킷 제어(NAT vs DSR)와 L7의 리버스 프록시(TCP 커넥션 분리, SSL 오프로딩), 그리고 현대 클라우드 2계층 설계를 제1원칙 관점에서 심층 분석한다."
 pubDate: "2026-09-27 04:00:00"
-tags: ["LoadBalancer", "Networking", "Architecture", "L4L7", "Cloud"]
-category: "Architecture"
+tags: ["LoadBalancer", "L4L7", "NAT", "DSR", "ReverseProxy", "Network", "Architecture"]
+categories: ["Network", "Architecture"]
 draft: false
 ---
 
