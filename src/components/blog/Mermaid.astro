@@ -62,12 +62,23 @@
     mermaid.initialize({
       startOnLoad: false,
       theme: 'neutral',
-      fontFamily: 'inherit',
       securityLevel: 'loose',
+      fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif',
+      themeVariables: {
+        fontSize: '13px',
+        fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif',
+      },
       flowchart: {
         useMaxWidth: false,
         htmlLabels: true,
+        padding: 18,
+        nodeSpacing: 45,
+        rankSpacing: 45,
       },
+      themeCSS: `
+        .node foreignObject { overflow: visible !important; }
+        .node foreignObject div { line-height: 1.35 !important; font-size: 13px !important; }
+      `,
     });
 
     // 모달 관련 요소 및 상태
@@ -144,7 +155,7 @@
 
       // 1. 전체 카드 래퍼
       const card = document.createElement('div');
-      card.className = 'mermaid-card my-8 rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden select-none';
+      card.className = 'mermaid-card not-prose my-8 rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden select-none';
 
       // 2. 카드 상단 툴바 (제목 + 줌 컨트롤러 + 소스 복사 버튼 + 전체화면 버튼)
       const toolbar = document.createElement('div');
@@ -316,3 +327,35 @@
   renderMermaidDiagrams();
   document.addEventListener('astro:page-load', renderMermaidDiagrams);
 </script>
+
+<style is:global>
+  /* Mermaid 다이어그램 텍스트 짤림 방지 및 타이포그래피 최적화 */
+  .mermaid-card,
+  #mermaid-modal {
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  }
+
+  /* .prose의 큰 line-height(1.75)가 노드 텍스트에 상속되어 하단이 짤리는 현상 방지 */
+  .mermaid-card svg text,
+  .mermaid-card svg .node foreignObject div,
+  .mermaid-card svg .label,
+  #mermaid-modal svg text,
+  #mermaid-modal svg .node foreignObject div,
+  #mermaid-modal svg .label {
+    line-height: 1.35 !important;
+    word-break: keep-all;
+  }
+
+  /* SVG foreignObject가 고정 높이에서 텍스트를 클리핑(자르기)하지 않도록 처리 */
+  .mermaid-card svg foreignObject,
+  #mermaid-modal svg foreignObject {
+    overflow: visible !important;
+  }
+
+  /* 노드 라벨 텍스트의 상하 여백 정렬 */
+  .mermaid-card svg .node foreignObject div,
+  #mermaid-modal svg .node foreignObject div {
+    padding: 0 4px !important;
+    text-align: center;
+  }
+</style>
