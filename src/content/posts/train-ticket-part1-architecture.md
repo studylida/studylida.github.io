@@ -1,7 +1,7 @@
 ---
 title: "Train Ticket 완벽 정복 1편: 아키텍처 청사진과 인프라 뼈대"
 description: "46개 마이크로서비스로 구성된 대규모 철도 예매 시스템 Train Ticket의 7대 도메인 토폴로지와 공통 모듈(ts-common) 정밀 분석"
-pubDate: 2026-09-27 00:30:00
+pubDate: "2026-09-27 00:30:00"
 tags: ["MSA", "Architecture", "SpringCloud", "TrainTicket", "Backend"]
 category: "Architecture"
 draft: false
