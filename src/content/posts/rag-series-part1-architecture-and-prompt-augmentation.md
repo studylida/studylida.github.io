@@ -252,7 +252,4 @@ def llm_call(query: str, top_k: int = 5, use_rag: bool = True, prompt: str = Non
 
 ## 5. 참고 자료
 
-1. **DeepLearning.AI & Coursera** — *Retrieval Augmented Generation (RAG)* Specialization, Course 1: "Introduction to RAG Systems" (Instructor: Zain Hasan, Andrew Ng)
-2. **BAAI** — `bge-base-en-v1.5` Dense Text Embedding Model Specifications
-3. **Together AI** — Open-Source LLM Inference Platform (`Qwen/Qwen3.5-9B`)
-4. **Scikit-Learn Documentation** — `sklearn.metrics.pairwise.cosine_similarity` & Vector Operations Guide
+1. **DeepLearning.AI** — *Retrieval Augmented Generation (RAG)*, Module 1: "Introduction to RAG Systems" (Instructor: Zain Hasan, Andrew Ng)
