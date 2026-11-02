@@ -4,10 +4,14 @@ import { getCollection } from 'astro:content';
 import BaseLayout from '../layouts/BaseLayout.astro';
 import CategorySidebar from '../components/blog/CategorySidebar.astro';
 import PostCard from '../components/blog/PostCard.astro';
+import NoticeCard from '../components/blog/NoticeCard.astro';
 import { sortPosts } from '../lib/utils';
 
 const allPosts = await getCollection('posts', ({ data }) => !data.draft);
-const sortedPosts = sortPosts(allPosts);
+const pinnedPosts = allPosts.filter((post) => post.data.pinned);
+const regularPosts = allPosts.filter((post) => !post.data.pinned);
+const sortedPosts = sortPosts(regularPosts);
+const sortedPinnedPosts = sortPosts(pinnedPosts);
 ---
 
 <BaseLayout title="studylida 📚 - 기술 블로그">
@@ -29,6 +33,15 @@ const sortedPosts = sortPosts(allPosts);
 
       <!-- 2. 우측 글 목록 메인 영역 -->
       <main class="flex-1">
+        {/* 상단 고정 공지사항 영역 */}
+        {sortedPinnedPosts.length > 0 && (
+          <section aria-label="고정 공지사항">
+            {sortedPinnedPosts.map((post) => (
+              <NoticeCard post={post} />
+            ))}
+          </section>
+        )}
+
         <div class="mb-6">
           <h2 class="text-lg font-bold text-slate-800">
             전체 글 ({sortedPosts.length})

@@ -1,0 +1,104 @@
+---
+// src/components/blog/NoticeCard.astro
+import type { CollectionEntry } from 'astro:content';
+import { formatDate } from '../../lib/utils';
+
+interface Props {
+  post: CollectionEntry<'posts'>;
+}
+
+const { post } = Astro.props;
+---
+
+<aside
+  class="notice-card bg-gradient-to-br from-indigo-50/90 via-white to-slate-50 rounded-xl p-6 shadow-sm border-2 border-indigo-200/90 hover:shadow-md hover:border-indigo-300 transition-all group cursor-pointer relative mb-8"
+  data-url={`/posts/${post.id}/`}
+  aria-label="공지사항 카드"
+>
+  <div class="flex items-center justify-between gap-3 text-xs mb-3">
+    <div class="flex items-center gap-2 relative z-10">
+      <span class="inline-flex items-center gap-1 font-bold text-indigo-700 bg-indigo-100/90 px-2.5 py-0.5 rounded-full tracking-wide">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+          <path d="M16 12V4H17V2H7V4H8V12L6 14V16H11V22H13V16H18V14L16 12Z" />
+        </svg>
+        공지사항 & 로드맵
+      </span>
+      {post.data.categories.map((cat) => (
+        <a 
+          href={`/category/${cat}/`}
+          class="font-medium text-slate-600 bg-white/80 border border-slate-200 px-2 py-0.5 rounded hover:bg-slate-100 transition-colors"
+          title={`${cat} 카테고리`}
+        >
+          {cat}
+        </a>
+      ))}
+    </div>
+    <time datetime={post.data.pubDate.toISOString()} class="shrink-0 text-slate-400 font-medium">
+      {formatDate(post.data.pubDate)}
+    </time>
+  </div>
+
+  <h3 class="text-xl font-bold text-slate-900 group-hover:text-indigo-600 transition-colors mb-2">
+    <a href={`/posts/${post.id}/`} class="hover:underline focus:outline-none">
+      {post.data.title}
+    </a>
+  </h3>
+
+  <p class="text-slate-600 text-sm mb-4 leading-relaxed">
+    {post.data.description}
+  </p>
+
+  <div class="flex items-center justify-between pt-2 border-t border-indigo-100/60">
+    <div class="flex flex-wrap gap-1.5 relative z-10">
+      {post.data.tags.map((tag) => (
+        <a
+          href={`/tags/${tag}/`}
+          class="text-xs bg-white text-slate-600 border border-slate-200/80 px-2 py-0.5 rounded hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+          title={`#${tag} 태그`}
+        >
+          #{tag}
+        </a>
+      ))}
+    </div>
+    <span class="inline-flex items-center text-xs font-semibold text-indigo-600 group-hover:translate-x-0.5 transition-transform">
+      진행 현황 보기 →
+    </span>
+  </div>
+</aside>
+
+<script>
+  function setupNoticeCardClicks() {
+    if ((window as any).__noticeCardListenerAttached) return;
+    (window as any).__noticeCardListenerAttached = true;
+
+    function handleNoticeNavigation(e: MouseEvent) {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+
+      const card = target.closest('.notice-card') as HTMLElement | null;
+      if (!card) return;
+
+      // 링크 직접 클릭 시 기본 동작 허용
+      if (target.closest('a')) return;
+
+      // 텍스트 선택 중 드래그 시 이동 방지
+      const selection = window.getSelection();
+      if (selection && selection.toString().trim().length > 0) return;
+
+      const url = card.getAttribute('data-url');
+      if (!url) return;
+
+      if (e.button === 1 || e.ctrlKey || e.metaKey) {
+        window.open(url, '_blank');
+      } else if (e.button === 0) {
+        window.location.href = url;
+      }
+    }
+
+    document.addEventListener('click', handleNoticeNavigation);
+    document.addEventListener('auxclick', handleNoticeNavigation);
+  }
+
+  setupNoticeCardClicks();
+  document.addEventListener('astro:page-load', setupNoticeCardClicks);
+</script>

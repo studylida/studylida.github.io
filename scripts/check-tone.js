@@ -33,11 +33,16 @@ const bannedKeywords = [
   '유령', '나비효과', '공짜 점심', '실무 팁', '실무 함정', '실무 인사이트'
 ];
 
-// '기적' 등 단어의 정상 기술 용어(주기적, 비동기적, 정기적, 동기적) 허용 패턴
+// '기적', '기만' 등 단어의 정상 기술 용어 및 조사 결합 허용 패턴
 function isAllowedContext(keyword, line) {
   if (keyword === '기적') {
     const stripped = line.replace(/(주기적|정기적|비동기적|동기적)/g, '');
     return !stripped.includes('기적');
+  }
+  if (keyword === '기만') {
+    // '크기만', '여기만', '동기만', '생기만' 등 앞 글자에 받침이 없거나 일반 명사+조사 '만' 결합 방어
+    const stripped = line.replace(/([가-힣]기)만/g, '');
+    return !stripped.includes('기만');
   }
   return false;
 }

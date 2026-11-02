@@ -59,6 +59,8 @@ const posts = defineCollection({
     }, z.array(z.string()).min(1)).optional(),
     // 임시 저장 여부 (true면 블로그 목록에서 숨김)
     draft: z.boolean().default(false),
+    // 상단 고정 공지사항 여부 (true면 홈 상단 공지 섹션에 노출)
+    pinned: z.boolean().default(false),
   }).transform((data) => ({
     ...data,
     categories: data.categories || data.category || ['General'],
