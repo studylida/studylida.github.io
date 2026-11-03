@@ -5,6 +5,7 @@ import BaseLayout from '../../layouts/BaseLayout.astro';
 import TOC from '../../components/blog/TOC.astro';
 import CodeCopy from '../../components/blog/CodeCopy.astro'; 
 import Mermaid from '../../components/blog/Mermaid.astro';
+import Comments from '../../components/blog/Comments.astro';
 import { sortPosts, formatDate } from '../../lib/utils';
 
 export async function getStaticPaths() {
@@ -120,6 +121,9 @@ const { Content, headings } = await render(post);
             </a>
           )}
         </nav>
+
+        <!-- 댓글 영역 (Giscus) -->
+        <Comments />
       </article>
 
       <!-- 우측 목차 -->

@@ -1,0 +1,35 @@
+---
+// src/components/blog/Comments.astro
+---
+
+<section class="mt-16 pt-8 border-t border-slate-200" aria-label="댓글 영역">
+  <div class="mb-6 flex items-center justify-between">
+    <h2 class="text-xl font-bold text-slate-900 flex items-center gap-2">
+      <span>💬</span>
+      <span>댓글</span>
+    </h2>
+    <span class="text-xs text-slate-500">
+      GitHub 계정으로 로그인하여 댓글을 남길 수 있습니다.
+    </span>
+  </div>
+
+  <div class="giscus-container">
+    <script
+      src="https://giscus.app/client.js"
+      data-repo="studylida/studylida.github.io"
+      data-repo-id="R_kgDOUr0nCQ"
+      data-category="General"
+      data-category-id="DIC_kwDOUr0nCc4DKQgx"
+      data-mapping="pathname"
+      data-strict="0"
+      data-reactions-enabled="1"
+      data-emit-metadata="0"
+      data-input-position="bottom"
+      data-theme="light"
+      data-lang="ko"
+      data-loading="lazy"
+      crossorigin="anonymous"
+      async
+    ></script>
+  </div>
+</section>
