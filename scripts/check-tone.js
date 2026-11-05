@@ -22,7 +22,7 @@ const targetDirs = [
   path.resolve(__dirname, '../../Cost-Effective Microservice Incident Diagnosis Balancing Telemetry Pruning Budget and RCA Faithfulness with Fine-Tuned Qwen-7B/docs')
 ].filter(d => fs.existsSync(d));
 
-// 2. 금지된 과장/자극적 메타포 및 일상 비유 목록
+// 2. 금지된 과장/자극적 메타포, 번역투 수식어 및 일상 비유 목록
 const bannedKeywords = [
   '아수라장', '비명', '피눈물', '칼날', '재앙', '파멸', '혼란',
   '지옥', '참사', '족쇄', '사망', '지혈', '민낯', '사투',
@@ -30,7 +30,22 @@ const bannedKeywords = [
   '환상', '참담', '처참', '비극', '괴물', '마법', '저주',
   '초고속', '초극대', '원천 차단', '원천 방어', '양날의 검', '블랙홀',
   '전화번호부', '관제탑', '바구니', '완벽 정복', '심층 해부', '심층 분석',
-  '유령', '나비효과', '공짜 점심', '실무 팁', '실무 함정', '실무 인사이트'
+  '유령', '나비효과', '공짜 점심', '실무 팁', '실무 함정', '실무 인사이트',
+  '전수 조사', '알고리즘 군', '심각한 지연', '극명하게', '덩그러니', '통째로 증발', '프롬프트 접지'
+];
+
+// 3. 금지된 마크다운/문장 패턴 정규식
+const bannedRegexes = [
+  {
+    type: 'BROKEN_QUOTE_EMPHASIS',
+    regex: /(?<!\*)\*["“”']|["“”']\*(?!\*)/,
+    desc: '따옴표와 별표(*) 기울임 결합 금지 (*"..."* 표기 시 별표 노출 버그 발생)'
+  },
+  {
+    type: 'MIDDLE_DOT_STACK',
+    regex: /[가-힣A-Za-z0-9]+·[가-힣A-Za-z0-9]+·[가-힣A-Za-z0-9]+/,
+    desc: '가운뎃점(·) 3개 이상 연속 명사 나열 금지 (자연스러운 문장으로 풀어서 서술)'
+  }
 ];
 
 // '기적', '기만' 등 단어의 정상 기술 용어 및 조사 결합 허용 패턴
@@ -89,6 +104,21 @@ for (const dir of targetDirs) {
         }
       }
 
+      // (1-b) 정규식 패턴 검사 (코드 블록 라인 제외)
+      if (!line.startsWith('```') && !line.startsWith('    ')) {
+        for (const rule of bannedRegexes) {
+          if (rule.regex.test(line)) {
+            totalViolations++;
+            violations.push({
+              file: `${dirName}/${file}`,
+              lineNum,
+              type: rule.type,
+              message: `${rule.desc}: "${line}"`
+            });
+          }
+        }
+      }
+
       // (2) h2 대제목 길이 검사 (src/content/posts 대상 필수)
       if (isPost) {
         const h2Match = line.match(/^##\s+(.+)$/);
@@ -100,14 +130,15 @@ for (const dir of targetDirs) {
           const pureTitle = cleanHeading.replace(/^\d+[\.\)]\s*/, '').trim();
           const titleLen = pureTitle.length;
 
-          // 250px TOC 권장 길이: 순수 제목 기준 13~16자 (최대 20자 초과 시 줄바꿈 경고)
-          if (titleLen > 20) {
+          // 250px TOC 규격: 공백 제외 글자 수 최대 13자(공백 포함 최대 16자), 레거시 포스트는 최대 20자
+          const nonSpaceLen = pureTitle.replace(/\s+/g, '').length;
+          if (file.startsWith('rag-series-') ? (nonSpaceLen > 13 || titleLen > 16) : titleLen > 20) {
             totalViolations++;
             violations.push({
               file: `${dirName}/${file}`,
               lineNum,
               type: 'HEADING_TOO_LONG',
-              message: `h2 대제목 길이 초과 (순수 제목 ${titleLen}자 > 권장 한도 20자): "## ${cleanHeading}" (순수 제목: "${pureTitle}")`
+              message: `h2 대제목 길이 초과 (순수 제목 ${titleLen}자, 공백 제외 ${nonSpaceLen}자): "## ${cleanHeading}" (순수 제목: "${pureTitle}")`
             });
           }
         }
