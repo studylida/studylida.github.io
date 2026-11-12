@@ -119,8 +119,19 @@ for (const dir of targetDirs) {
         }
       }
 
-      // (2) h2 대제목 길이 검사 (src/content/posts 대상 필수)
+      // (2) 시리즈 제목 일관성 및 h2 대제목 길이 검사 (src/content/posts 대상 필수)
       if (isPost) {
+        if (lineNum <= 10 && file.startsWith('rag-series-') && line.startsWith('title:')) {
+          if (!/^title:\s*"RAG 파이프라인 \d+편(\(실습\))?:\s+.+"$/.test(line)) {
+            totalViolations++;
+            violations.push({
+              file: `${dirName}/${file}`,
+              lineNum,
+              type: 'SERIES_TITLE_MISMATCH',
+              message: `RAG 시리즈 포스트 제목은 'title: "RAG 파이프라인 N편: ..."' 또는 'title: "RAG 파이프라인 N편(실습): ..."' 형식을 따라야 합니다: ${line}`
+            });
+          }
+        }
         const h2Match = line.match(/^##\s+(.+)$/);
         if (h2Match) {
           const headingText = h2Match[1].trim();

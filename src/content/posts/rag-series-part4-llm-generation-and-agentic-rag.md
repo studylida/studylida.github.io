@@ -1,5 +1,5 @@
 ---
-title: "RAG 시리즈 Part 4: LLM 텍스트 생성 제어와 에이전트 기반 RAG 챗봇 구현"
+title: "RAG 파이프라인 4편: LLM 텍스트 생성 제어와 에이전트 기반 RAG 챗봇 구현"
 description: "트랜스포머 디코더의 토큰 생성 원리와 샘플링 파라미터 제어부터 프롬프트 엔지니어링, 환각 억제와 RAGAS 평가, 그리고 라우팅과 동적 메타데이터 필터링을 결합한 에이전트 RAG 챗봇 구현까지 정리한다."
 pubDate: "2026-11-12 12:30:00"
 tags: ["RAG", "LLM", "Sampling", "PromptEngineering", "Hallucination", "RAGAS", "AgenticRAG", "Weaviate"]
