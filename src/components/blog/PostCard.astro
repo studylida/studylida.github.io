@@ -11,9 +11,11 @@ const { post } = Astro.props;
 ---
 
 <article
-  class="post-card bg-white rounded-xl p-6 shadow-sm border border-slate-200 hover:shadow-md hover:border-indigo-200 transition-all group cursor-pointer relative"
+  class="post-card m-card-tilt bg-white rounded-xl p-6 shadow-sm border border-slate-200 hover:shadow-md hover:border-indigo-200 transition-all group cursor-pointer relative"
   data-url={`/posts/${post.id}/`}
+  data-categories={post.data.categories.join(',')}
 >
+  <div class="m-card-tilt-glare"></div>
   <div class="flex items-center justify-between gap-3 text-xs text-slate-500 mb-2.5">
     <div class="flex flex-wrap items-center gap-1.5 relative z-10">
       {post.data.categories.map((cat) => (
@@ -87,6 +89,23 @@ const { post } = Astro.props;
 
     document.addEventListener('click', handleCardNavigation);
     document.addEventListener('auxclick', handleCardNavigation);
+
+    // 미세한 3D 틸트 + 글레어
+    document.querySelectorAll<HTMLElement>('.post-card.m-card-tilt').forEach((card) => {
+      card.addEventListener('mousemove', (e) => {
+        const rect = card.getBoundingClientRect();
+        const x = (e.clientX - rect.left) / rect.width;
+        const y = (e.clientY - rect.top) / rect.height;
+        const rotateY = (x - 0.5) * 4;
+        const rotateX = (0.5 - y) * 4;
+        card.style.transform = `perspective(900px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateY(-2px)`;
+        card.style.setProperty('--glare-x', `${x * 100}%`);
+        card.style.setProperty('--glare-y', `${y * 100}%`);
+      });
+      card.addEventListener('mouseleave', () => {
+        card.style.transform = '';
+      });
+    });
   }
 
   setupPostCardClicks();

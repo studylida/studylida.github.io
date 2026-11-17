@@ -18,10 +18,10 @@ const sortedPinnedPosts = sortPosts(pinnedPosts);
   <div class="max-w-5xl mx-auto px-6 py-12">
     <!-- 헤더 -->
     <header class="mb-10 border-b border-slate-200 pb-6">
-      <h1 class="text-3xl font-extrabold tracking-tight text-slate-900 mb-2">
+      <h1 class="text-3xl font-extrabold tracking-tight text-slate-900 mb-2 m-texts-reveal">
         studylida 📚
       </h1>
-      <p class="text-slate-600">
+      <p class="text-slate-600 m-texts-reveal m-texts-reveal-delay-1">
         공부한 기술 개념들을 기록하고 연결하는 공간입니다.
       </p>
     </header>
@@ -42,13 +42,27 @@ const sortedPinnedPosts = sortPosts(pinnedPosts);
           </section>
         )}
 
-        <div class="mb-6">
-          <h2 class="text-lg font-bold text-slate-800">
-            전체 글 ({sortedPosts.length})
+        <div class="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <h2 class="text-lg font-bold text-slate-800 flex items-center gap-1.5">
+            <span>전체 글</span>
+            <span class="text-indigo-600 tabular-nums">(<span id="home-post-count" data-target={sortedPosts.length}>{sortedPosts.length}</span>)</span>
           </h2>
+
+          <div class="m-tabs bg-slate-100 p-1 rounded-xl border border-slate-200/80 overflow-x-auto max-w-full" id="home-filter-tabs" role="tablist">
+            <div class="m-tabs-indicator bg-white shadow-sm border border-slate-200/60" id="home-tabs-indicator"></div>
+            {['전체', 'AI', 'Backend', 'Network', 'Architecture', 'Python'].map((cat, idx) => (
+              <button
+                type="button"
+                data-cat={cat}
+                class={`home-filter-tab relative z-10 px-3 py-1 text-xs font-semibold rounded-lg whitespace-nowrap transition-colors ${idx === 0 ? 'text-slate-900' : 'text-slate-500'}`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div class="grid gap-6">
+        <div class="grid gap-6" id="home-posts-grid">
           {sortedPosts.map((post) => (
             <PostCard post={post} />
           ))}
@@ -57,3 +71,65 @@ const sortedPinnedPosts = sortPosts(pinnedPosts);
     </div>
   </div>
 </BaseLayout>
+
+<script>
+  const tabsWrap = document.getElementById('home-filter-tabs');
+  const indicator = document.getElementById('home-tabs-indicator');
+  const tabs = document.querySelectorAll<HTMLButtonElement>('.home-filter-tab');
+  const cards = document.querySelectorAll<HTMLElement>('#home-posts-grid .post-card');
+  const countEl = document.getElementById('home-post-count');
+
+  function moveHomeIndicator(btn: HTMLElement) {
+    if (!indicator || !tabsWrap) return;
+    indicator.style.width = `${btn.offsetWidth}px`;
+    indicator.style.transform = `translateX(${btn.offsetLeft}px)`;
+  }
+
+  function animateCount(target: number) {
+    if (!countEl) return;
+    const start = Number(countEl.textContent || '0');
+    const startTime = performance.now();
+    function tick(now: number) {
+      const p = Math.min(1, (now - startTime) / 320);
+      const eased = 1 - Math.pow(1 - p, 3);
+      countEl!.textContent = String(Math.round(start + (target - start) * eased));
+      if (p < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  if (tabs.length > 0) {
+    moveHomeIndicator(tabs[0]);
+    if (countEl) {
+      const initialTarget = Number(countEl.dataset.target || countEl.textContent || '0');
+      countEl.textContent = '0';
+      animateCount(initialTarget);
+    }
+    window.addEventListener('resize', () => {
+      const active = document.querySelector<HTMLElement>('.home-filter-tab.text-slate-900');
+      if (active) moveHomeIndicator(active);
+    });
+
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        tabs.forEach((t) => {
+          t.classList.remove('text-slate-900');
+          t.classList.add('text-slate-500');
+        });
+        tab.classList.remove('text-slate-500');
+        tab.classList.add('text-slate-900');
+        moveHomeIndicator(tab);
+
+        const selected = tab.dataset.cat || '전체';
+        let visibleCount = 0;
+        cards.forEach((card) => {
+          const cats = (card.dataset.categories || '').split(',');
+          const show = selected === '전체' || cats.includes(selected);
+          card.style.display = show ? 'block' : 'none';
+          if (show) visibleCount++;
+        });
+        animateCount(visibleCount);
+      });
+    });
+  }
+</script>

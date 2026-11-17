@@ -1,0 +1,493 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+
+<BaseLayout title="UI & Motion Lab - studylida" description="블로그 UI 블록 및 모션 실험실">
+  <div class="max-w-5xl mx-auto px-6 py-12">
+    <header class="mb-10 border-b border-slate-200 pb-6">
+      <div class="inline-flex items-center gap-2 text-xs font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full mb-3">
+        <span>Motion System v1</span>
+        <span>·</span>
+        <span>src/styles/motion.css</span>
+      </div>
+      <h1 class="text-3xl font-extrabold tracking-tight text-slate-900 mb-2 m-texts-reveal">
+        UI &amp; Motion Lab
+      </h1>
+      <p class="text-slate-600 m-texts-reveal m-texts-reveal-delay-1">
+        블로그에 적용할 UI 블록 모양과 트랜지션을 한곳에서 테스트하는 카탈로그입니다.
+      </p>
+    </header>
+
+    <!-- 카테고리 필터 (Sliding Tabs) -->
+    <div class="mb-8 flex flex-wrap items-center justify-between gap-4">
+      <div class="m-tabs bg-slate-100 p-1 rounded-xl border border-slate-200/80" id="lab-tabs" role="tablist">
+        <div class="m-tabs-indicator bg-white shadow-sm border border-slate-200/60" id="lab-tabs-indicator"></div>
+        <button type="button" class="lab-tab relative z-10 px-3.5 py-1.5 text-xs font-semibold text-slate-900 rounded-lg" data-filter="all">All (16)</button>
+        <button type="button" class="lab-tab relative z-10 px-3.5 py-1.5 text-xs font-semibold text-slate-500 rounded-lg" data-filter="essential">Essential</button>
+        <button type="button" class="lab-tab relative z-10 px-3.5 py-1.5 text-xs font-semibold text-slate-500 rounded-lg" data-filter="effects">Effects</button>
+        <button type="button" class="lab-tab relative z-10 px-3.5 py-1.5 text-xs font-semibold text-slate-500 rounded-lg" data-filter="texts">Texts</button>
+        <button type="button" class="lab-tab relative z-10 px-3.5 py-1.5 text-xs font-semibold text-slate-500 rounded-lg" data-filter="ai">AI Agents</button>
+      </div>
+
+      <button
+        type="button"
+        id="trigger-toast-btn"
+        class="px-3.5 py-1.5 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+      >
+        Toast 알림 테스트
+      </button>
+    </div>
+
+    <!-- 데모 카드 그리드 -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6" id="lab-grid">
+      <!-- 1. Icon swap + Success check + Text states swap -->
+      <section class="lab-card bg-white rounded-xl border border-slate-200 p-5 flex flex-col justify-between gap-4" data-cat="essential">
+        <div>
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-indigo-600">Essential · CodeCopy 적용 후보</span>
+          <h2 class="text-base font-bold text-slate-900 mt-1">Icon Swap + Success Check + Text Swap</h2>
+          <p class="text-xs text-slate-500 mt-1">코드 복사 버튼 클릭 시 아이콘 스케일·블러 전환과 체크 SVG 드로잉을 함께 실행합니다.</p>
+        </div>
+        <div class="h-28 bg-slate-50 rounded-lg border border-slate-200/70 flex items-center justify-center">
+          <button
+            type="button"
+            id="demo-copy-btn"
+            data-state="idle"
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-medium hover:bg-slate-800 transition-colors"
+          >
+            <span class="m-icon-swap w-4 h-4" data-state="idle">
+              <svg data-icon="primary" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <svg data-icon="secondary" class="w-4 h-4 text-emerald-400 m-success-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"></path>
+              </svg>
+            </span>
+            <span class="m-text-swap" data-state="idle">
+              <span>코드 복사</span>
+              <span class="text-emerald-400">복사됨!</span>
+            </span>
+          </button>
+        </div>
+      </section>
+
+      <!-- 2. Accordion -->
+      <section class="lab-card bg-white rounded-xl border border-slate-200 p-5 flex flex-col justify-between gap-4" data-cat="essential">
+        <div>
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-indigo-600">Essential · 본문 콜아웃/토글 후보</span>
+          <h2 class="text-base font-bold text-slate-900 mt-1">Accordion (grid-rows + chevron)</h2>
+          <p class="text-xs text-slate-500 mt-1">공지 요약이나 긴 코드/수식 상세 설명을 부드럽게 접고 펼칩니다.</p>
+        </div>
+        <div class="bg-slate-50 rounded-lg border border-slate-200/70 p-3">
+          <div class="m-accordion bg-white rounded-lg border border-slate-200" id="demo-accordion" data-open="false">
+            <button type="button" class="w-full px-3.5 py-2.5 flex items-center justify-between text-xs font-semibold text-slate-800" id="demo-accordion-btn">
+              <span>세부 구현 원리 펼쳐보기</span>
+              <svg class="w-4 h-4 text-slate-400 m-accordion-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"></path>
+              </svg>
+            </button>
+            <div class="m-accordion-body">
+              <div class="m-accordion-inner px-3.5 pb-3 text-xs text-slate-600 leading-relaxed">
+                <code>grid-template-rows: 0fr → 1fr</code> 전환으로 높이 계산 없이 자연스럽게 열리고 닫힙니다.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. Toggle (double bounce) -->
+      <section class="lab-card bg-white rounded-xl border border-slate-200 p-5 flex flex-col justify-between gap-4" data-cat="essential">
+        <div>
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-indigo-600">Essential · 다크모드/읽기 설정 후보</span>
+          <h2 class="text-base font-bold text-slate-900 mt-1">Double-Bounce Toggle</h2>
+          <p class="text-xs text-slate-500 mt-1">더블 바운스 스프링 이징이 들어간 스위치입니다.</p>
+        </div>
+        <div class="h-28 bg-slate-50 rounded-lg border border-slate-200/70 flex items-center justify-center gap-4">
+          <button
+            type="button"
+            role="switch"
+            aria-checked="false"
+            id="demo-toggle"
+            class="m-toggle relative inline-flex h-7 w-12 items-center rounded-full bg-slate-300 p-1 transition-colors"
+          >
+            <span class="m-toggle-thumb inline-block h-5 w-5 rounded-full bg-white shadow-sm"></span>
+          </button>
+          <span id="demo-toggle-label" class="w-24 text-xs font-medium text-slate-600">일반 모드</span>
+        </div>
+      </section>
+
+      <!-- 4. Error state shake -->
+      <section class="lab-card bg-white rounded-xl border border-slate-200 p-5 flex flex-col justify-between gap-4" data-cat="essential">
+        <div>
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-indigo-600">Essential · 검색/입력 검증 후보</span>
+          <h2 class="text-base font-bold text-slate-900 mt-1">Error State Shake</h2>
+          <p class="text-xs text-slate-500 mt-1">빈 검색어나 잘못된 입력 시 흔들림 피드백을 줍니다.</p>
+        </div>
+        <div class="h-28 bg-slate-50 rounded-lg border border-slate-200/70 flex items-center justify-center gap-2 px-4">
+          <input
+            type="text"
+            id="demo-shake-input"
+            placeholder="비워두고 확인을 눌러보세요"
+            class="m-error-shake w-48 px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-indigo-500"
+          />
+          <button type="button" id="demo-shake-btn" class="px-3 py-1.5 text-xs font-semibold bg-slate-800 text-white rounded-lg hover:bg-slate-700">
+            확인
+          </button>
+        </div>
+      </section>
+
+      <!-- 5. Learn more hover + Notification badge -->
+      <section class="lab-card bg-white rounded-xl border border-slate-200 p-5 flex flex-col justify-between gap-4" data-cat="essential">
+        <div>
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-indigo-600">Essential · 이전/다음 글 &amp; 배지 후보</span>
+          <h2 class="text-base font-bold text-slate-900 mt-1">Learn More Hover &amp; Badge</h2>
+          <p class="text-xs text-slate-500 mt-1">목록 돌아가기, 이전/다음 글 카드 호버 시 화살표 모션입니다.</p>
+        </div>
+        <div class="h-28 bg-slate-50 rounded-lg border border-slate-200/70 flex items-center justify-center gap-6">
+          <a href="#lab-tabs" class="m-learn-more inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-700 hover:border-indigo-300 hover:text-indigo-600 transition-colors">
+            <span>글 계속 읽기</span>
+            <span class="m-learn-more-arrow">→</span>
+          </a>
+          <div class="relative inline-flex items-center px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-700">
+            <span>새 글</span>
+            <span id="demo-badge-num" class="ml-2 px-1.5 py-0.5 text-[10px] rounded-full bg-indigo-600 text-white font-bold">3</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 6. Skeleton loader and reveal -->
+      <section class="lab-card bg-white rounded-xl border border-slate-200 p-5 flex flex-col justify-between gap-4" data-cat="essential">
+        <div>
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-indigo-600">Essential · 검색/비동기 블록 후보</span>
+          <h2 class="text-base font-bold text-slate-900 mt-1">Skeleton Loader &amp; Reveal</h2>
+          <p class="text-xs text-slate-500 mt-1">로딩 스켈레톤에서 실제 카드로 크로스페이드 전환합니다.</p>
+        </div>
+        <div class="h-28 bg-slate-50 rounded-lg border border-slate-200/70 p-3 flex items-center justify-between gap-3">
+          <div id="demo-skeleton-box" class="flex-1">
+            <div class="m-skeleton space-y-2">
+              <div class="h-3 bg-slate-200 rounded w-1/3"></div>
+              <div class="h-3 bg-slate-200 rounded w-4/5"></div>
+              <div class="h-3 bg-slate-200 rounded w-2/3"></div>
+            </div>
+          </div>
+          <button type="button" id="demo-skeleton-toggle" class="shrink-0 px-2.5 py-1.5 text-[11px] font-semibold bg-white border border-slate-200 rounded-lg hover:border-indigo-300">
+            전환
+          </button>
+        </div>
+      </section>
+
+      <!-- 7. 3D Tilt Card -->
+      <section class="lab-card bg-white rounded-xl border border-slate-200 p-5 flex flex-col justify-between gap-4" data-cat="effects">
+        <div>
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-emerald-600">Effects · PostCard / NoticeCard 후보</span>
+          <h2 class="text-base font-bold text-slate-900 mt-1">3D Pointer Tilt + Glare</h2>
+          <p class="text-xs text-slate-500 mt-1">마우스 위치에 따라 카드가 입체적으로 기울고 빛이 따라옵니다.</p>
+        </div>
+        <div class="h-32 bg-slate-50 rounded-lg border border-slate-200/70 flex items-center justify-center p-4" style="perspective: 800px;">
+          <div class="m-card-tilt w-full max-w-xs bg-white rounded-xl border border-slate-200 p-4 shadow-sm cursor-pointer" id="demo-tilt-card">
+            <div class="m-card-tilt-glare"></div>
+            <div class="text-xs font-bold text-indigo-600 mb-1">RAG Series</div>
+            <div class="text-sm font-bold text-slate-900">마우스를 올려보세요</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 8. Card Stack Hover -->
+      <section class="lab-card bg-white rounded-xl border border-slate-200 p-5 flex flex-col justify-between gap-4" data-cat="effects">
+        <div>
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-emerald-600">Effects · 시리즈 묶음 카드 후보</span>
+          <h2 class="text-base font-bold text-slate-900 mt-1">Card Stack Hover</h2>
+          <p class="text-xs text-slate-500 mt-1">겹쳐진 시리즈 글 카드가 호버 시 부채꼴처럼 펼쳐집니다.</p>
+        </div>
+        <div class="h-32 bg-slate-50 rounded-lg border border-slate-200/70 flex items-center justify-center">
+          <div class="m-card-stack w-44 h-20 cursor-pointer">
+            <div data-layer="1" class="m-card-stack-item absolute inset-0 rounded-xl bg-indigo-100 border border-indigo-200"></div>
+            <div data-layer="2" class="m-card-stack-item absolute inset-0 rounded-xl bg-slate-100 border border-slate-200"></div>
+            <div data-layer="3" class="m-card-stack-item absolute inset-0 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center text-xs font-bold text-slate-800">
+              시리즈 5편 모아보기
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 9. Like Button -->
+      <section class="lab-card bg-white rounded-xl border border-slate-200 p-5 flex flex-col justify-between gap-4" data-cat="effects">
+        <div>
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-emerald-600">Effects · 포스트 하단 리액션 후보</span>
+          <h2 class="text-base font-bold text-slate-900 mt-1">Like Button Pop</h2>
+          <p class="text-xs text-slate-500 mt-1">클릭 시 하트 스프링 팝과 함께 카운터가 올라갑니다.</p>
+        </div>
+        <div class="h-28 bg-slate-50 rounded-lg border border-slate-200/70 flex items-center justify-center">
+          <button
+            type="button"
+            id="demo-like-btn"
+            data-liked="false"
+            class="m-like-btn inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-slate-200 text-xs font-semibold text-slate-700 hover:border-rose-300 transition-colors shadow-sm"
+          >
+            <svg class="w-4 h-4 text-slate-400 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+            </svg>
+            <span id="demo-like-count">12</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- 10. Texts Reveal & Number Subtle Change -->
+      <section class="lab-card bg-white rounded-xl border border-slate-200 p-5 flex flex-col justify-between gap-4" data-cat="texts">
+        <div>
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-amber-600">Texts · 헤더 &amp; 카운터 후보</span>
+          <h2 class="text-base font-bold text-slate-900 mt-1">Texts Reveal &amp; Counter</h2>
+          <p class="text-xs text-slate-500 mt-1">제목·설명의 시차 등장과 숫자 카운트업/교체 효과입니다.</p>
+        </div>
+        <div class="h-28 bg-slate-50 rounded-lg border border-slate-200/70 flex items-center justify-center gap-4">
+          <div class="text-2xl font-extrabold text-slate-900 tabular-nums" id="demo-counter">0</div>
+          <button type="button" id="demo-counter-btn" class="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:border-indigo-300">
+            +17 카운트
+          </button>
+        </div>
+      </section>
+
+      <!-- 11. Shimmer Text & Thinking States -->
+      <section class="lab-card bg-white rounded-xl border border-slate-200 p-5 flex flex-col justify-between gap-4" data-cat="ai texts">
+        <div>
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-violet-600">AI Agents · RAG 데모 블록 후보</span>
+          <h2 class="text-base font-bold text-slate-900 mt-1">Shimmer &amp; Thinking States</h2>
+          <p class="text-xs text-slate-500 mt-1">검색 → 재정렬 → 답변 생성 단계를 빛나는 상태 문구로 보여줍니다.</p>
+        </div>
+        <div class="h-28 bg-slate-50 rounded-lg border border-slate-200/70 flex items-center justify-between px-5">
+          <span class="m-shimmer-text text-sm font-bold" id="demo-thinking-text">벡터 DB에서 근거를 검색하는 중...</span>
+          <button type="button" id="demo-thinking-next" class="px-2.5 py-1.5 text-[11px] font-semibold bg-white border border-slate-200 rounded-lg hover:border-indigo-300">
+            다음 상태
+          </button>
+        </div>
+      </section>
+
+      <!-- 12. Matrix Dot Loader & Streaming Text -->
+      <section class="lab-card bg-white rounded-xl border border-slate-200 p-5 flex flex-col justify-between gap-4" data-cat="ai">
+        <div>
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-violet-600">AI Agents · LLM 생성 시뮬레이터 후보</span>
+          <h2 class="text-base font-bold text-slate-900 mt-1">Matrix Dot Loader &amp; Streaming</h2>
+          <p class="text-xs text-slate-500 mt-1">16개 도트 로더와 단어 단위 소프트 블러 스트리밍 효과입니다.</p>
+        </div>
+        <div class="h-28 bg-slate-50 rounded-lg border border-slate-200/70 flex items-center justify-between gap-4 px-4">
+          <div class="grid grid-cols-4 gap-1 shrink-0" aria-hidden="true">
+            {Array.from({ length: 16 }).map((_, i) => (
+              <span
+                class="m-matrix-dot w-1.5 h-1.5 rounded-full bg-indigo-500"
+                style={`animation-delay: ${(i % 4) * 120 + Math.floor(i / 4) * 90}ms`}
+              ></span>
+            ))}
+          </div>
+          <p id="demo-stream-output" class="text-xs text-slate-700 leading-relaxed flex-1">
+            재생 버튼을 눌러 스트리밍을 확인하세요.
+          </p>
+          <button type="button" id="demo-stream-btn" class="shrink-0 px-2.5 py-1.5 text-[11px] font-semibold bg-white border border-slate-200 rounded-lg hover:border-indigo-300">
+            재생
+          </button>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Toast Demo Container -->
+  <div
+    id="lab-toast"
+    data-open="false"
+    class="m-toast fixed bottom-6 right-6 z-50 flex items-center gap-2.5 bg-slate-900 text-white text-xs font-medium px-4 py-3 rounded-xl shadow-lg border border-slate-700"
+  >
+    <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+    <span>모션 시스템 토스트 알림이 정상 동작합니다.</span>
+  </div>
+</BaseLayout>
+
+<script>
+  // 1. Sliding Tabs + Category Filter
+  const tabsWrap = document.getElementById('lab-tabs');
+  const indicator = document.getElementById('lab-tabs-indicator');
+  const tabs = document.querySelectorAll<HTMLButtonElement>('.lab-tab');
+  const cards = document.querySelectorAll<HTMLElement>('.lab-card');
+
+  function moveIndicator(btn: HTMLElement) {
+    if (!indicator || !tabsWrap) return;
+    indicator.style.width = `${btn.offsetWidth}px`;
+    indicator.style.transform = `translateX(${btn.offsetLeft}px)`;
+  }
+
+  if (tabs.length > 0) {
+    moveIndicator(tabs[0]);
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        tabs.forEach((t) => {
+          t.classList.remove('text-slate-900');
+          t.classList.add('text-slate-500');
+        });
+        tab.classList.remove('text-slate-500');
+        tab.classList.add('text-slate-900');
+        moveIndicator(tab);
+
+        const filter = tab.dataset.filter || 'all';
+        cards.forEach((card) => {
+          const cats = (card.dataset.cat || '').split(' ');
+          card.style.display = filter === 'all' || cats.includes(filter) ? 'flex' : 'none';
+        });
+      });
+    });
+  }
+
+  // 2. Copy Button Demo
+  const copyBtn = document.getElementById('demo-copy-btn');
+  copyBtn?.addEventListener('click', () => {
+    const iconSwap = copyBtn.querySelector('.m-icon-swap');
+    const textSwap = copyBtn.querySelector('.m-text-swap');
+    const isActive = copyBtn.getAttribute('data-state') === 'active';
+    const next = isActive ? 'idle' : 'active';
+    copyBtn.setAttribute('data-state', next);
+    iconSwap?.setAttribute('data-state', next);
+    textSwap?.setAttribute('data-state', next);
+  });
+
+  // 3. Accordion Demo
+  const acc = document.getElementById('demo-accordion');
+  const accBtn = document.getElementById('demo-accordion-btn');
+  accBtn?.addEventListener('click', () => {
+    const open = acc?.getAttribute('data-open') === 'true';
+    acc?.setAttribute('data-open', open ? 'false' : 'true');
+  });
+
+  // 4. Toggle Demo
+  const toggleBtn = document.getElementById('demo-toggle');
+  const toggleLabel = document.getElementById('demo-toggle-label');
+  toggleBtn?.addEventListener('click', () => {
+    const checked = toggleBtn.getAttribute('aria-checked') === 'true';
+    const next = !checked;
+    toggleBtn.setAttribute('aria-checked', String(next));
+    toggleBtn.classList.toggle('bg-indigo-600', next);
+    toggleBtn.classList.toggle('bg-slate-300', !next);
+    if (toggleLabel) toggleLabel.textContent = next ? '다크/집중 모드' : '일반 모드';
+  });
+
+  // 5. Shake Demo
+  const shakeBtn = document.getElementById('demo-shake-btn');
+  const shakeInput = document.getElementById('demo-shake-input') as HTMLInputElement | null;
+  shakeBtn?.addEventListener('click', () => {
+    if (!shakeInput) return;
+    if (!shakeInput.value.trim()) {
+      shakeInput.setAttribute('data-shake', 'false');
+      void shakeInput.offsetWidth;
+      shakeInput.setAttribute('data-shake', 'true');
+      shakeInput.classList.add('border-rose-500');
+      setTimeout(() => {
+        shakeInput.setAttribute('data-shake', 'false');
+        shakeInput.classList.remove('border-rose-500');
+      }, 500);
+    }
+  });
+
+  // 6. Skeleton Toggle Demo
+  const skelBox = document.getElementById('demo-skeleton-box');
+  const skelBtn = document.getElementById('demo-skeleton-toggle');
+  let skelLoaded = false;
+  skelBtn?.addEventListener('click', () => {
+    if (!skelBox) return;
+    skelLoaded = !skelLoaded;
+    skelBox.innerHTML = skelLoaded
+      ? '<div class="m-texts-reveal"><div class="text-xs font-bold text-slate-900">검색 결과 로드 완료</div><div class="text-[11px] text-slate-500 mt-1">Hybrid Retriever (BM25 + Dense)</div></div>'
+      : '<div class="m-skeleton space-y-2"><div class="h-3 bg-slate-200 rounded w-1/3"></div><div class="h-3 bg-slate-200 rounded w-4/5"></div><div class="h-3 bg-slate-200 rounded w-2/3"></div></div>';
+  });
+
+  // 7. 3D Tilt Card Demo
+  const tiltCard = document.getElementById('demo-tilt-card');
+  tiltCard?.addEventListener('mousemove', (e) => {
+    const rect = tiltCard.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    const rotateY = (x - 0.5) * 14;
+    const rotateX = (0.5 - y) * 14;
+    tiltCard.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale(1.02)`;
+    tiltCard.style.setProperty('--glare-x', `${x * 100}%`);
+    tiltCard.style.setProperty('--glare-y', `${y * 100}%`);
+  });
+  tiltCard?.addEventListener('mouseleave', () => {
+    tiltCard.style.transform = 'rotateX(0deg) rotateY(0deg) scale(1)';
+  });
+
+  // 8. Like Button Demo
+  const likeBtn = document.getElementById('demo-like-btn');
+  const likeCount = document.getElementById('demo-like-count');
+  likeBtn?.addEventListener('click', () => {
+    const liked = likeBtn.getAttribute('data-liked') === 'true';
+    const next = !liked;
+    likeBtn.setAttribute('data-liked', String(next));
+    const svg = likeBtn.querySelector('svg');
+    if (svg) {
+      svg.setAttribute('fill', next ? 'currentColor' : 'none');
+      svg.classList.toggle('text-rose-500', next);
+      svg.classList.toggle('text-slate-400', !next);
+    }
+    if (likeCount) {
+      const n = Number(likeCount.textContent || '12');
+      likeCount.textContent = String(next ? n + 1 : n - 1);
+    }
+  });
+
+  // 9. Counter Demo
+  const counterEl = document.getElementById('demo-counter');
+  const counterBtn = document.getElementById('demo-counter-btn');
+  let currentCount = 0;
+  counterBtn?.addEventListener('click', () => {
+    const target = currentCount + 17;
+    const start = currentCount;
+    const startTime = performance.now();
+    function tick(now: number) {
+      const p = Math.min(1, (now - startTime) / 450);
+      const eased = 1 - Math.pow(1 - p, 3);
+      if (counterEl) counterEl.textContent = String(Math.round(start + (target - start) * eased));
+      if (p < 1) requestAnimationFrame(tick);
+      else currentCount = target;
+    }
+    requestAnimationFrame(tick);
+  });
+
+  // 10. Thinking States Demo
+  const thinkingStates = [
+    '벡터 DB에서 근거를 검색하는 중...',
+    'Cross-Encoder로 문서를 재정렬하는 중...',
+    '최종 답변을 생성하는 중...'
+  ];
+  let thinkingIdx = 0;
+  const thinkingText = document.getElementById('demo-thinking-text');
+  document.getElementById('demo-thinking-next')?.addEventListener('click', () => {
+    thinkingIdx = (thinkingIdx + 1) % thinkingStates.length;
+    if (thinkingText) thinkingText.textContent = thinkingStates[thinkingIdx];
+  });
+
+  // 11. Streaming Text Demo
+  const streamOut = document.getElementById('demo-stream-output');
+  const streamBtn = document.getElementById('demo-stream-btn');
+  const streamWords = ['검색된', '문서에서', '핵심', '근거를', '추출해', '답변을', '구성합니다.'];
+  streamBtn?.addEventListener('click', () => {
+    if (!streamOut) return;
+    streamOut.innerHTML = '';
+    streamWords.forEach((word, i) => {
+      setTimeout(() => {
+        const span = document.createElement('span');
+        span.className = 'm-streaming-word mr-1';
+        span.textContent = word;
+        streamOut.appendChild(span);
+      }, i * 110);
+    });
+  });
+
+  // 12. Toast Demo
+  const toastBtn = document.getElementById('trigger-toast-btn');
+  const toastEl = document.getElementById('lab-toast');
+  let toastTimer: number | undefined;
+  toastBtn?.addEventListener('click', () => {
+    if (!toastEl) return;
+    toastEl.setAttribute('data-open', 'true');
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => {
+      toastEl.setAttribute('data-open', 'false');
+    }, 2200);
+  });
+</script>

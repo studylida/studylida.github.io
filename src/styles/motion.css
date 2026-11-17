@@ -1,0 +1,563 @@
+/* src/styles/motion.css
+ * studylida Motion Tokens & Reusable UI Block Transitions
+ * Inspired by transitions.dev patterns with prefers-reduced-motion support.
+ */
+
+:root {
+  /* Durations */
+  --dur-instant: 90ms;
+  --dur-quick: 160ms;
+  --dur-fast: 240ms;
+  --dur-normal: 340ms;
+  --dur-slow: 520ms;
+
+  /* Easings */
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.75, 0.64, 1);
+
+  /* Blurs & Distances */
+  --blur-small: 4px;
+  --blur-medium: 8px;
+  --distance-micro: 4px;
+  --distance-small: 10px;
+  --distance-medium: 18px;
+}
+
+/* ==========================================================================
+   1. Essential UI Transitions
+   ========================================================================== */
+
+/* Icon swap (scale + blur) */
+.m-icon-swap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.m-icon-swap [data-icon] {
+  transition:
+    opacity var(--dur-quick) var(--ease-in-out),
+    transform var(--dur-fast) var(--ease-spring),
+    filter var(--dur-quick) var(--ease-in-out);
+}
+
+.m-icon-swap [data-icon="secondary"] {
+  position: absolute;
+  opacity: 0;
+  transform: scale(0.5);
+  filter: blur(var(--blur-small));
+  pointer-events: none;
+}
+
+.m-icon-swap[data-state="active"] [data-icon="primary"] {
+  opacity: 0;
+  transform: scale(0.5);
+  filter: blur(var(--blur-small));
+}
+
+.m-icon-swap[data-state="active"] [data-icon="secondary"] {
+  opacity: 1;
+  transform: scale(1);
+  filter: blur(0);
+}
+
+/* Success check SVG stroke draw */
+.m-success-check path {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  transition: stroke-dashoffset var(--dur-normal) var(--ease-smooth-out);
+}
+
+.m-success-check[data-state="active"] path,
+[data-state="active"] .m-success-check path {
+  stroke-dashoffset: 0;
+}
+
+/* Text states swap (blur + y-shift) */
+.m-text-swap {
+  display: inline-grid;
+  align-items: center;
+}
+
+.m-text-swap > span {
+  grid-area: 1 / 1;
+  transition:
+    opacity var(--dur-quick) var(--ease-in-out),
+    transform var(--dur-fast) var(--ease-smooth-out),
+    filter var(--dur-quick) var(--ease-in-out);
+}
+
+.m-text-swap > span:last-child {
+  opacity: 0;
+  transform: translateY(var(--distance-micro));
+  filter: blur(var(--blur-small));
+}
+
+.m-text-swap[data-state="active"] > span:first-child {
+  opacity: 0;
+  transform: translateY(calc(var(--distance-micro) * -1));
+  filter: blur(var(--blur-small));
+}
+
+.m-text-swap[data-state="active"] > span:last-child {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+
+/* Error state shake */
+@keyframes m-shake {
+  0%, 100% { transform: translateX(0); }
+  18% { transform: translateX(-6px); }
+  36% { transform: translateX(6px); }
+  54% { transform: translateX(-4px); }
+  72% { transform: translateX(4px); }
+  90% { transform: translateX(-2px); }
+}
+
+.m-error-shake[data-shake="true"] {
+  animation: m-shake var(--dur-normal) var(--ease-in-out);
+}
+
+/* Accordion (grid-rows height + chevron morph) */
+.m-accordion-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur-normal) var(--ease-smooth-out);
+}
+
+.m-accordion[data-open="true"] .m-accordion-body {
+  grid-template-rows: 1fr;
+}
+
+.m-accordion-inner {
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    opacity var(--dur-fast) var(--ease-in-out),
+    transform var(--dur-normal) var(--ease-smooth-out);
+}
+
+.m-accordion[data-open="true"] .m-accordion-inner {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.m-accordion-chevron {
+  transition: transform var(--dur-fast) var(--ease-spring);
+}
+
+.m-accordion[data-open="true"] .m-accordion-chevron {
+  transform: rotate(180deg);
+}
+
+/* Sliding Tabs */
+.m-tabs {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.m-tabs-indicator {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 0;
+  border-radius: 0.5rem;
+  transition:
+    transform var(--dur-normal) var(--ease-spring),
+    width var(--dur-normal) var(--ease-spring);
+  pointer-events: none;
+}
+
+/* Toggle (double bounce thumb) */
+.m-toggle-thumb {
+  transition: transform var(--dur-normal) var(--ease-bounce);
+}
+
+.m-toggle[aria-checked="true"] .m-toggle-thumb {
+  transform: translateX(20px);
+}
+
+/* Learn more hover */
+.m-learn-more-arrow {
+  display: inline-block;
+  transition: transform var(--dur-fast) var(--ease-spring);
+}
+
+.m-learn-more:hover .m-learn-more-arrow,
+.group:hover .m-learn-more-arrow {
+  transform: translateX(4px);
+}
+
+/* Toast open/close */
+.m-toast {
+  opacity: 0;
+  transform: translateY(var(--distance-medium)) scale(0.95);
+  filter: blur(var(--blur-small));
+  pointer-events: none;
+  transition:
+    opacity var(--dur-fast) var(--ease-smooth-out),
+    transform var(--dur-normal) var(--ease-spring),
+    filter var(--dur-fast) var(--ease-smooth-out);
+}
+
+.m-toast[data-open="true"] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+  pointer-events: auto;
+}
+
+/* Skeleton pulse -> reveal */
+@keyframes m-skeleton-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+.m-skeleton {
+  animation: m-skeleton-pulse 1.4s var(--ease-in-out) infinite;
+}
+
+/* ==========================================================================
+   2. Texts & Counters
+   ========================================================================== */
+
+@keyframes m-text-rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--distance-small));
+    filter: blur(var(--blur-small));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.m-texts-reveal {
+  opacity: 0;
+  animation: m-text-rise var(--dur-slow) var(--ease-smooth-out) forwards;
+}
+
+.m-texts-reveal-delay-1 { animation-delay: 80ms; }
+.m-texts-reveal-delay-2 { animation-delay: 160ms; }
+.m-texts-reveal-delay-3 { animation-delay: 240ms; }
+
+/* Shimmer text */
+@keyframes m-shimmer-sweep {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.m-shimmer-text {
+  background: linear-gradient(
+    110deg,
+    #475569 35%,
+    #6366f1 48%,
+    #a5b4fc 52%,
+    #475569 65%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: m-shimmer-sweep 2.4s linear infinite;
+}
+
+/* ==========================================================================
+   3. Effects (Tilt, Card Stack, Like)
+   ========================================================================== */
+
+.m-card-tilt {
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform var(--dur-fast) var(--ease-smooth-out), box-shadow var(--dur-fast) var(--ease-smooth-out);
+  will-change: transform;
+}
+
+.m-card-tilt-glare {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-in-out);
+  background: radial-gradient(
+    circle at var(--glare-x, 50%) var(--glare-y, 50%),
+    rgba(99, 102, 241, 0.14),
+    transparent 60%
+  );
+}
+
+.m-card-tilt:hover .m-card-tilt-glare {
+  opacity: 1;
+}
+
+/* Card stack hover */
+.m-card-stack {
+  position: relative;
+}
+
+.m-card-stack-item {
+  transition: transform var(--dur-normal) var(--ease-spring), box-shadow var(--dur-normal) var(--ease-smooth-out);
+}
+
+.m-card-stack:hover .m-card-stack-item[data-layer="1"] {
+  transform: translate(-14px, -6px) rotate(-4deg);
+}
+
+.m-card-stack:hover .m-card-stack-item[data-layer="2"] {
+  transform: translate(14px, -4px) rotate(4deg);
+}
+
+.m-card-stack:hover .m-card-stack-item[data-layer="3"] {
+  transform: translateY(-10px) scale(1.02);
+}
+
+/* Like button pop */
+@keyframes m-heart-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.35); }
+  75% { transform: scale(0.92); }
+  100% { transform: scale(1); }
+}
+
+.m-like-btn[data-liked="true"] svg {
+  animation: m-heart-pop var(--dur-normal) var(--ease-spring);
+}
+
+/* ==========================================================================
+   4. AI Agents (Matrix Dots, Streaming)
+   ========================================================================== */
+
+@keyframes m-dot-pulse {
+  0%, 100% { opacity: 0.2; transform: scale(0.75); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+.m-matrix-dot {
+  animation: m-dot-pulse 1.2s var(--ease-in-out) infinite;
+}
+
+@keyframes m-stream-word {
+  from {
+    opacity: 0;
+    filter: blur(var(--blur-small));
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+.m-streaming-word {
+  display: inline-block;
+  animation: m-stream-word var(--dur-fast) var(--ease-smooth-out) forwards;
+}
+
+/* ==========================================================================
+   5. Modal, Popover & Floating Action Menu (FAB)
+   ========================================================================== */
+
+.m-modal-backdrop {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-quick) var(--ease-in-out);
+}
+
+.m-modal-backdrop[data-open="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.m-modal-box {
+  opacity: 0;
+  transform: scale(0.95) translateY(-8px);
+  filter: blur(var(--blur-small));
+  transition:
+    opacity var(--dur-fast) var(--ease-smooth-out),
+    transform var(--dur-normal) var(--ease-spring),
+    filter var(--dur-fast) var(--ease-smooth-out);
+}
+
+.m-modal-backdrop[data-open="true"] .m-modal-box {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+  filter: blur(0);
+}
+
+.m-popover {
+  opacity: 0;
+  transform: translateY(6px) scale(0.96);
+  filter: blur(var(--blur-small));
+  pointer-events: none;
+  transition:
+    opacity var(--dur-quick) var(--ease-smooth-out),
+    transform var(--dur-fast) var(--ease-spring),
+    filter var(--dur-quick) var(--ease-smooth-out);
+}
+
+.m-popover[data-open="true"] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+  pointer-events: auto;
+}
+
+/* FAB Menu */
+.m-fab-panel {
+  opacity: 0;
+  transform: translateY(10px) scale(0.92);
+  transform-origin: bottom right;
+  filter: blur(var(--blur-small));
+  pointer-events: none;
+  transition:
+    opacity var(--dur-quick) var(--ease-in-out),
+    transform var(--dur-normal) var(--ease-spring),
+    filter var(--dur-quick) var(--ease-in-out);
+}
+
+.m-fab-wrap[data-open="true"] .m-fab-panel {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+  pointer-events: auto;
+}
+
+/* Confetti Particle */
+@keyframes m-confetti-fly {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--tx, 0px), var(--ty, -40px)) scale(0.4) rotate(var(--rot, 180deg));
+  }
+}
+
+.m-confetti-dot {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  pointer-events: none;
+  animation: m-confetti-fly 650ms var(--ease-smooth-out) forwards;
+}
+
+/* Focus Reading Mode (Dark Theme) */
+html.focus-mode {
+  color-scheme: dark;
+}
+
+html.focus-mode body {
+  background-color: #0b1120;
+  color: #e2e8f0;
+}
+
+html.focus-mode header.sticky {
+  background-color: rgba(15, 23, 42, 0.88) !important;
+  border-color: #1e293b !important;
+}
+
+html.focus-mode .bg-white,
+html.focus-mode .bg-white\/80,
+html.focus-mode .bg-white\/95 {
+  background-color: #111827 !important;
+  border-color: #1f2937 !important;
+  color: #e2e8f0;
+}
+
+html.focus-mode .bg-slate-50,
+html.focus-mode .bg-slate-100 {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+html.focus-mode .bg-indigo-50,
+html.focus-mode .bg-indigo-100,
+html.focus-mode .bg-indigo-100\/90 {
+  background-color: rgba(79, 70, 229, 0.18) !important;
+  color: #a5b4fc !important;
+}
+
+html.focus-mode .notice-card {
+  background: linear-gradient(135deg, #172036 0%, #111827 55%, #0f172a 100%) !important;
+  border-color: rgba(99, 102, 241, 0.4) !important;
+}
+
+html.focus-mode .border-slate-200,
+html.focus-mode .border-slate-200\/80,
+html.focus-mode .border-slate-100,
+html.focus-mode .border-indigo-100,
+html.focus-mode .border-indigo-100\/60 {
+  border-color: #1f2937 !important;
+}
+
+html.focus-mode .text-slate-900,
+html.focus-mode .text-slate-800 {
+  color: #f8fafc !important;
+}
+
+html.focus-mode .text-slate-700,
+html.focus-mode .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+
+html.focus-mode .text-slate-500,
+html.focus-mode .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+html.focus-mode .text-indigo-600,
+html.focus-mode .text-indigo-700 {
+  color: #818cf8 !important;
+}
+
+html.focus-mode .markdown-callout {
+  background-color: #1e293b;
+}
+
+html.focus-mode .prose {
+  --tw-prose-body: #cbd5e1;
+  --tw-prose-headings: #f8fafc;
+  --tw-prose-bold: #f8fafc;
+  --tw-prose-links: #818cf8;
+  --tw-prose-quotes: #cbd5e1;
+  --tw-prose-code: #a5b4fc;
+}
+
+html.focus-mode .prose :where(:not(pre) > code) {
+  background-color: #1e293b;
+  color: #a5b4fc;
+  border-color: #334155;
+}
+
+/* ==========================================================================
+   6. Reduced Motion Accessibility Guard
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .m-texts-reveal {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}

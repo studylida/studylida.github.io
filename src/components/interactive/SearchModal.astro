@@ -2,14 +2,15 @@
 // src/components/interactive/SearchModal.astro
 ---
 
-<!-- 전체 화면 검색 모달 오버레이 (기본 hidden) -->
+<!-- 전체 화면 검색 모달 오버레이 -->
 <div
   id="search-modal-backdrop"
-  class="fixed inset-0 z-50 hidden bg-slate-900/40 backdrop-blur-sm flex items-start justify-center pt-16 sm:pt-24 px-4"
+  data-open="false"
+  class="m-modal-backdrop fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-start justify-center pt-16 sm:pt-24 px-4"
 >
   <div
     id="search-modal-box"
-    class="w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden text-slate-800 animate-in fade-in zoom-in-95 duration-150"
+    class="m-modal-box m-error-shake w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden text-slate-800"
   >
     <!-- 검색 입력창 헤더 -->
     <div class="flex items-center px-4 border-b border-slate-100">
@@ -21,6 +22,14 @@
         class="w-full py-4 text-base bg-transparent outline-none placeholder:text-slate-400 font-medium"
         autocomplete="off"
       />
+      <button
+        type="button"
+        id="search-clear-btn"
+        class="hidden mr-2 text-xs text-slate-400 hover:text-slate-600 px-1.5 py-0.5 rounded bg-slate-100 transition-colors"
+        title="검색어 지우기"
+      >
+        지우기
+      </button>
       <kbd class="hidden sm:inline text-[11px] font-mono bg-slate-100 text-slate-500 px-2 py-0.5 rounded border border-slate-200 select-none">
         ESC
       </kbd>
@@ -47,18 +56,21 @@
   const resultsList = document.getElementById('search-results-list');
   const emptyMsg = document.getElementById('search-empty-msg');
 
+  const clearBtn = document.getElementById('search-clear-btn');
+
   // 모달 열기
   async function openSearchModal() {
-    backdrop?.classList.remove('hidden');
-    searchInput?.focus();
+    backdrop?.setAttribute('data-open', 'true');
+    setTimeout(() => searchInput?.focus(), 40);
     // 미리 인덱스 캐싱
     await getSearchIndex();
   }
 
   // 모달 닫기
   function closeSearchModal() {
-    backdrop?.classList.add('hidden');
+    backdrop?.setAttribute('data-open', 'false');
     if (searchInput) searchInput.value = '';
+    clearBtn?.classList.add('hidden');
     if (resultsList) resultsList.innerHTML = '';
     if (emptyMsg) {
       emptyMsg.textContent = '키워드를 입력하면 연관된 글이 실시간으로 표시됩니다.';
@@ -66,18 +78,33 @@
     }
   }
 
+  clearBtn?.addEventListener('click', () => {
+    if (searchInput) {
+      searchInput.value = '';
+      searchInput.dispatchEvent(new Event('input'));
+      searchInput.focus();
+    }
+  });
+
   // 전역 단축키 (Ctrl+K / Cmd+K 로 열기, Esc 로 닫기)
   document.addEventListener('keydown', (e) => {
+    const isOpen = backdrop?.getAttribute('data-open') === 'true';
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
       e.preventDefault();
-      if (backdrop?.classList.contains('hidden')) {
+      if (!isOpen) {
         openSearchModal();
       } else {
         closeSearchModal();
       }
     }
-    if (e.key === 'Escape' && !backdrop?.classList.contains('hidden')) {
+    if (e.key === 'Escape' && isOpen) {
       closeSearchModal();
+    }
+    if (e.key === 'Enter' && isOpen && searchInput && !searchInput.value.trim()) {
+      modalBox?.setAttribute('data-shake', 'false');
+      void modalBox?.offsetWidth;
+      modalBox?.setAttribute('data-shake', 'true');
+      setTimeout(() => modalBox?.setAttribute('data-shake', 'false'), 450);
     }
   });
 
@@ -96,6 +123,7 @@
   // 실시간 타이핑 검색
   searchInput?.addEventListener('input', async (e) => {
     const query = (e.target as HTMLInputElement).value.trim();
+    clearBtn?.classList.toggle('hidden', !query);
     const index = await getSearchIndex();
 
     if (!query) {

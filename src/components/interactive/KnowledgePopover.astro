@@ -3,10 +3,11 @@
 // 이 컴포넌트는 전역에서 동작하는 인터랙티브 팝오버입니다.
 ---
 
-<!-- 1. 화면에 떠오를 팝오버 카드 (기본은 hidden 상태) -->
+<!-- 1. 화면에 떠오를 팝오버 카드 -->
 <div
   id="knowledge-popover"
-  class="fixed z-50 hidden w-80 bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-indigo-100 p-4 transition-all duration-200 animate-in fade-in zoom-in-95 text-slate-800"
+  data-open="false"
+  class="m-popover fixed z-50 w-80 bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-indigo-100 p-4 text-slate-800"
   style="top: 0; left: 0;"
 >
   <!-- 팝오버 헤더: 선택된 단어와 닫기 버튼 -->
@@ -49,7 +50,7 @@
   // 팝오버 닫기
   function hidePopover() {
     if (popover) {
-      popover.classList.add('hidden');
+      popover.setAttribute('data-open', 'false');
     }
   }
 
@@ -148,7 +149,7 @@
     if (popover) {
       popover.style.left = `${left}px`;
       popover.style.top = `${top}px`;
-      popover.classList.remove('hidden');
+      popover.setAttribute('data-open', 'true');
     }
   });
 </script>
