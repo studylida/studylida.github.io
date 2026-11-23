@@ -276,7 +276,7 @@ def build_messages(question, history, evidence, max_characters, *, structured_se
     source_kinds = {hit.get('sourceKind') for hit in evidence}
     # SYSTEM_POLICY는 최상단 system 지시문으로, [대화 이력] 격리 규칙과 답변 기준을 담는다.
     policy = SYSTEM_POLICY
-    # ... 6\~7편에서 다룰 정형 CSV 집계(structured_selection, aggregate_followup) 분기는 해당 편에서 살펴본다 ...
+    # ... 6~7편에서 다룰 정형 CSV 집계(structured_selection, aggregate_followup) 분기는 해당 편에서 살펴본다 ...
     messages = [{'role': 'system', 'content': policy}, {'role': 'user', 'content': context}]
 
     mixed = None
