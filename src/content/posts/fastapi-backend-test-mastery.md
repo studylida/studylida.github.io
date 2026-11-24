@@ -1,6 +1,6 @@
 ---
 title: "FastAPI 테스트 코드 기초부터 DB 격리까지"
-description: "알고리즘 문제 풀이에서 웹 백엔드로 전환하며 학습한 FastAPI와 pytest 기반 테스트 코드 작성법, Pydantic 스키마 방어, 제너레이터 픽스처, SAVEPOINT 롤백 원리를 정리한다."
+description: "FastAPI와 pytest 기반 API 테스트 패턴, Pydantic 스키마 방어, 픽스처 격리, SAVEPOINT 롤백과 외부 통신 차단 구조를 정리한다."
 pubDate: "2026-10-08 09:30:00"
 tags: ["FastAPI", "Pytest", "Backend", "TestArchitecture", "SQLAlchemy"]
 categories: ["Backend"]
@@ -9,9 +9,9 @@ draft: false
 
 ## 1. 코딩 테스트와 웹 백엔드 개발
 
-알고리즘 문제 풀이를 통해 파이썬 문법을 익히는 것과 웹 프레임워크 환경에서 백엔드 애플리케이션 코드를 작성하는 것 사이에는 차이가 있다. 코딩 테스트가 단일 함수 안에서 주어진 입력을 처리해 결괏값을 내는 문제 풀이에 가깝다면, 웹 백엔드는 HTTP 프로토콜 규약, 클라이언트 입력값 검증, 영속성 계층(DB) 트랜잭션, 그리고 외부 통신 격리까지 조율해야 한다.
+알고리즘 문제 풀이로 파이썬 문법을 익히는 것과 웹 백엔드 애플리케이션 코드를 작성하는 일은 다르다. 코딩 테스트가 단일 함수 안에서 입력을 처리해 결괏값을 내는 문제 풀이라면, 웹 백엔드는 다층 검증과 격리를 요구한다. HTTP 프로토콜 규약, 클라이언트 입력값 검증, 영속성 계층(DB) 트랜잭션, 외부 통신 차단까지 함께 조율해야 한다.
 
-실제 프로젝트인 `ontology-map-workspace` 백엔드(FastAPI + PostgreSQL + SQLAlchemy)를 기반으로 테스트 코드를 작성하며 정리한 기초 문법과 테스트 작성 패턴을 단계별로 기록한다.
+FastAPI와 PostgreSQL, SQLAlchemy 기반 웹 백엔드에서 테스트 코드를 작성할 때 핵심이 되는 검증 패턴과 격리 원리를 단계별로 정리한다.
 
 ---
 
@@ -25,10 +25,10 @@ draft: false
 - **`POST` 요청**: 서버에 새 리소스를 생성할 때 사용하며, 본문 페이로드(`json={"name": "이름"}`)에 데이터를 실어 보낸다.
 - **요청 헤더(`headers`)**: 인증 토큰(`Authorization`)이나 요청 메타데이터를 담아 보낸다.
 
-FastAPI 테스트에서는 이러한 HTTP 통신을 시뮬레이션하기 위해 `TestClient`를 사용한다. `TestClient`는 실제 네트워크 포트를 열지 않고 메모리 상에서 ASGI 인터페이스를 통해 빠르게 요청을 처리하는 가상 클라이언트다. 프로젝트의 `conftest.py`에 선언된 `client` 픽스처를 통해 각 테스트 함수에 주입하여 사용한다.
+FastAPI 테스트에서는 HTTP 통신을 시뮬레이션하기 위해 `TestClient`를 사용한다. `TestClient`는 실제 네트워크 포트를 열지 않고 메모리 상에서 ASGI 인터페이스로 요청을 빠르게 처리하는 가상 클라이언트다. 단독 스크립트에서는 `client = TestClient(app)`으로 직접 생성해 호출한다. 반면 pytest 스위트에서는 매번 새로 만들지 않고 테스트 설정 파일(`conftest.py`)의 `client` 픽스처로 주입받아 쓰며, 이 픽스처 격리 구조는 5장과 6장에서 자세히 다룬다.
 
 ### 2.2 GET 요청과 기본 상태 코드 검증
-가장 기초적인 헬스체크 및 404 경로 검증 코드는 다음과 같이 구성된다.
+가장 기초적인 헬스체크와 존재하지 않는 경로 요청(`404 Not Found`) 검증 코드는 다음과 같이 구성한다.
 
 ```python
 def test_get_health(client: TestClient) -> None:
@@ -56,7 +56,7 @@ def test_not_found_endpoint(client: TestClient) -> None:
 응답 본문에서 세부 필드를 여러 개 검증할 때는 `data = response.json()`과 같이 변수에 역직렬화된 객체를 담아 확인한다. 이때 두 가지 방어적 검증 기법이 필요하다:
 
 1. **`isinstance(data, dict)` 선행 검증**:
-   JSON 표준에서 최상위 루트 노드는 객체(`dict`)일 수도 있고 배열(`list`)일 수도 있다. 실제로 목록 조회 API 중 일부는 최상위에 리스트를 바로 반환한다. 본문의 키를 꺼내기 전에 `assert isinstance(data, dict)`를 선행 검증하면, 서버가 예기치 않게 리스트나 에러 문자열을 반환했을 때 발생할 수 있는 런타임 `TypeError`를 방지하고 명확한 `AssertionError`를 통해 결함을 조기에 발견할 수 있다.
+   JSON 표준에서 최상위 루트 노드는 객체(`dict`)일 수도 있고 배열(`list`)일 수도 있다. 실제로 목록 조회 API 중 일부는 최상위에 리스트를 바로 반환한다. 본문의 키를 꺼내기 전에 `assert isinstance(data, dict)`를 선행 검증해야 안전하다. 만약 서버가 예기치 않게 리스트나 에러 문자열을 반환하면, 런타임 `TypeError` 대신 명확한 `AssertionError`로 결함을 일찍 발견할 수 있다.
 2. **`is False` 엄격 비교**:
    로그인 여부나 활성화 상태 같은 불리언 값을 검증할 때 `not data["authenticated"]` 형태의 부정 연산자를 쓰면 위험하다. 파이썬의 `not`은 `False`뿐만 아니라 `0`, `""`, `None`, `[]` 같은 falsy 값을 모두 참으로 판별하기 때문이다. `0`이나 `None`과 명확히 구분하기 위해 싱글톤 비교 연산자인 `is False`를 사용한다.
 
@@ -75,8 +75,8 @@ def test_get_session_unauthenticated(client: TestClient) -> None:
     assert data["user"] is None
 ```
 
-### 2.4 POST 요청과 201 Created 검증
-새로운 데이터를 생성하는 `POST` 요청에서는 `json=` 인자에 파이썬 딕셔너리를 전달한다. 성공 시 응답 코드는 `201 Created`를 기대한다.
+### 2.4 POST 요청과 리소스 생성(201 Created) 검증
+새로운 데이터를 생성하는 `POST` 요청에서는 `json=` 인자에 파이썬 딕셔너리를 전달한다. 생성이 성공하면 응답 코드로 `201 Created`를 기대한다.
 
 ```python
 def test_create_workspace(client: TestClient) -> None:
@@ -98,14 +98,14 @@ def test_create_workspace(client: TestClient) -> None:
 
 ---
 
-## 3. 스키마 유효성 검사와 422 방어
+## 3. 스키마 검증과 422 방어
 
-백엔드 서버가 처리해야 하는 요청 중 상당수는 클라이언트의 필수값 누락이나 잘못된 타입 전송이다. 잘못된 데이터가 서비스 계층 내부로 진입하여 서버 에러(`500 Internal Server Error`)를 일으키지 않도록, 진입점에서 즉시 차단(`422 Unprocessable Entity`)하는 검증이 필요하다.
+백엔드 서버가 처리해야 하는 요청 중 상당수는 클라이언트의 필수값 누락이나 잘못된 타입 전송이다. 잘못된 데이터가 서비스 계층 내부로 진입하여 서버 내부 오류(`500 Internal Server Error`)를 일으키지 않도록, 진입점에서 입력 형식 오류로 즉시 차단(`422 Unprocessable Entity`)하는 검증이 필요하다.
 
 ### 3.1 Pydantic이 동작하는 위치와 원리
 FastAPI는 라우터 내부에서 `if not name:` 같은 수동 유효성 검사 코드를 작성하지 않는다. 대신 Pydantic 라이브러리를 사용하여 진입 계층에서 자동으로 검증한다:
 
-1. **스키마 정의 (`workspace_schemas.py`)**: `BaseModel`을 상속받아 필드 타입과 제약 조건을 선언한다.
+1. **스키마 정의**: `BaseModel`을 상속받아 필드 타입과 제약 조건을 선언한다.
    ```python
    from pydantic import BaseModel, ConfigDict, Field
 
@@ -116,16 +116,16 @@ FastAPI는 라우터 내부에서 `if not name:` 같은 수동 유효성 검사 
        # 1글자 이상, 255글자 이하의 필수 문자열
        name: str = Field(min_length=1, max_length=255)
    ```
-2. **라우터 연결 (`workspace_api.py`)**: 라우터 함수의 매개변수 타입 힌트로 해당 스키마를 지정한다.
+2. **라우터 연결**: 라우터 함수의 매개변수 타입 힌트로 해당 스키마를 지정한다.
    ```python
    @router.post("/workspaces", status_code=201)
    def create_workspace(body: WorkspaceCreate):
        # 요청 본문이 WorkspaceCreate 규칙을 통과했을 때만 실행된다.
        return workspace_service.create(body)
    ```
-3. **자동 차단**: 클라이언트가 `name`을 빼먹거나, `extra="forbid"`로 금지된 임의의 필드를 넣으면 FastAPI가 라우터 함수 본문을 실행하지 않고 즉시 `422 Unprocessable Entity`를 반환한다.
+3. **자동 차단**: 클라이언트가 `name`을 빼먹거나, `extra="forbid"`로 금지된 임의의 필드를 넣으면 FastAPI가 라우터 함수 본문을 실행하지 않고 즉시 입력 검증 실패(`422 Unprocessable Entity`) 응답을 반환한다.
 
-### 3.2 422 에러의 세부 필드 검증
+### 3.2 입력 검증 실패(422)의 세부 필드 검증
 단순히 `assert response.status_code == 422`나 `"detail" in data` 수준으로만 단언하면 잘못된 테스트 통과(False Positive)가 발생할 수 있다.
 
 예를 들어, 허용되지 않은 `owner_user_id` 필드를 보냈을 때 거절되는지 확인하려는 테스트에서 실수로 필수값인 `name`까지 누락한 경우를 들 수 있다. 단순 상태 코드만 보면 422이므로 테스트는 통과하지만, 실제로 검증하려 했던 `owner_user_id` 방어 로직은 전혀 검증되지 않은 셈이다.
@@ -160,11 +160,15 @@ def test_workspace_create_rejects_extra_fields(client: TestClient) -> None:
 데이터 조회 API에서는 검색어, 페이지네이션 한도, 정렬 기준 등을 쿼리 스트링으로 전달하고, 특정 리소스 접근 시 경로 변수를 사용한다. 또한 인증 정보는 HTTP 헤더로 전달된다.
 
 ### 4.1 쿼리 파라미터 검색 테스트
-`client.get()` 호출 시 `params=` 인자에 딕셔너리를 전달하면 URL 뒤에 `?q=연구` 형태의 쿼리 스트링이 붙어서 전송된다.
+`client.get()` 호출 시 `params=` 인자에 딕셔너리를 전달하면 URL 뒤에 `?q=연구` 형태의 쿼리 스트링이 붙어서 전송된다. 테스트가 DB 초기 상태에 의존하지 않도록 대상 데이터를 먼저 생성(시드)한 뒤 검색을 호출한다.
 
 ```python
 def test_search_workspaces_by_query(client: TestClient) -> None:
-    """쿼리 파라미터를 통한 검색 API 호출."""
+    """사전 데이터 생성 후 쿼리 파라미터를 통한 검색 API 호출."""
+    # 다른 테스트의 잔여 데이터에 기대지 않도록 검색 대상을 직접 생성한다.
+    create_res = client.post("/api/v1/workspaces", json={"name": "연구 프로젝트"})
+    assert create_res.status_code == 201
+
     query = {"q": "연구"}
     response = client.get("/api/v1/workspaces", params=query)
 
@@ -190,12 +194,15 @@ assert "연구 프로젝트" in names
 ```
 
 ### 4.3 경로 변수(Path Parameter) 조회
-URL 경로 자체에 ID가 포함되는 엔드포인트는 파이썬의 f-string을 활용해 경로를 구성한다.
+URL 경로 자체에 ID가 포함되는 엔드포인트도 먼저 리소스를 생성해 실제 발급된 ID를 받아 경로를 구성한다. 임의의 고정 ID에 기대지 않으므로 테스트 격리가 깨지지 않는다.
 
 ```python
 def test_get_workspace_by_id(client: TestClient) -> None:
-    """경로 변수를 사용한 단건 상세 조회 검증."""
-    target_id = "ws-1"
+    """리소스 생성 후 발급된 ID로 단건 상세 조회 검증."""
+    create_res = client.post("/api/v1/workspaces", json={"name": "연구 프로젝트"})
+    assert create_res.status_code == 201
+    target_id = create_res.json()["id"]
+
     response = client.get(f"/api/v1/workspaces/{target_id}")
 
     assert response.status_code == 200
@@ -206,14 +213,14 @@ def test_get_workspace_by_id(client: TestClient) -> None:
 ```
 
 ### 4.4 HTTP 헤더 전달과 인증 실패 검증
-웹 API에서는 일반적으로 `Authorization` 헤더를 통해 인증 토큰을 전달한다. 테스트 코드에서는 `headers=` 인자를 통해 임의의 헤더를 주입할 수 있다. 잘못된 토큰을 전송했을 때 401 Unauthorized로 거절되는지 확인한다.
+인증이 필요한 엔드포인트에서는 일반적으로 `Authorization` 헤더를 통해 토큰을 전달한다. 테스트 코드에서는 `headers=` 인자를 통해 임의의 헤더를 주입할 수 있다. 인증이 필수인 `/api/v1/profile` 경로에 잘못된 토큰을 전송했을 때 인증 실패(`401 Unauthorized`)로 거절되는지 확인한다.
 
 ```python
-def test_get_workspaces_rejects_invalid_token(client: TestClient) -> None:
-    """유효하지 않은 토큰 헤더 전송 시 401 에러 검증."""
-    # Authorization 헤더에 잘못된 토큰을 실어 전송한다.
+def test_get_profile_rejects_invalid_token(client: TestClient) -> None:
+    """유효하지 않은 토큰 헤더 전송 시 인증 실패(401) 검증."""
+    # Authorization 헤더에 잘못된 토큰을 실어 인증 보호 엔드포인트로 전송한다.
     headers = {"Authorization": "Bearer invalid_secret_token"}
-    response = client.get("/api/v1/workspaces", headers=headers)
+    response = client.get("/api/v1/profile", headers=headers)
 
     assert response.status_code == 401
     data = response.json()
@@ -247,7 +254,15 @@ def test_create_workspace_using_fixture(
 ```
 
 ### 5.2 app.dependency_overrides와 뒷정리 누락 문제
-FastAPI는 `app.dependency_overrides`를 제공한다. 이는 딕셔너리 구조로 동작한다:
+FastAPI 라우터가 인증이나 DB 세션을 주입받을 때는 다음과 같이 `Depends(...)`로 의존성 함수를 선언한다.
+
+```python
+@app.get("/api/v1/profile")
+def get_profile(user: dict = Depends(get_current_user)):
+    return {"username": user["username"]}
+```
+
+FastAPI는 이 의존성을 테스트 시점에 바꿔치기할 수 있도록 `app.dependency_overrides` 딕셔너리를 제공한다:
 - **Key**: 대체하고자 하는 원래의 의존성 함수 (예: `get_current_user`)
 - **Value**: 대신 실행할 가짜 함수나 람다 (예: `lambda: {"username": "alice"}`)
 
@@ -322,6 +337,9 @@ new_workspace = Workspace(name="진짜 DB 지도")
 db_session.add(new_workspace)
 db_session.flush()
 
+# SQLAlchemy 1차 캐시(Identity Map)를 비워 get()이 캐시가 아닌 실제 SELECT를 실행하게 만든다.
+db_session.expire_all()
+
 # 실제 DB에서 기본키(ID)를 통해 레코드를 다시 읽어온다.
 saved = db_session.get(Workspace, new_workspace.id)
 assert saved is not None
@@ -329,20 +347,26 @@ assert saved.id == new_workspace.id
 assert saved.name == "진짜 DB 지도"
 ```
 
+주의할 점은 `db_session.get()` 호출 전에 `db_session.expire_all()`로 세션의 1차 캐시(Identity Map)를 비우는 것이다. `expire_all()` 없이 `db_session.get()`을 바로 부르면 SQLAlchemy가 메모리의 Identity Map에 남아 있던 `new_workspace` 인스턴스를 그대로 돌려주므로 DB에 실제 `SELECT` 쿼리를 날리지 않고 통과할 수 있다.
+
 ### 6.2 db_session.get과 select의 차이점
 그렇다면 DB에서 데이터를 다시 꺼내올 때 어떤 방식을 사용하는 것이 적절할까? SQLAlchemy 2.0에서는 상황에 따라 두 가지 방식을 구분해 사용한다:
 
 - **`db_session.get(Model, pk)`**:
   - 기본키(Primary Key)로 단건 조회할 때 가장 직관적이고 빠르다.
-  - 내부적으로 SQLAlchemy의 1차 캐시(Identity Map)를 조회한 뒤 필요한 경우 쿼리를 수행한다.
+  - 내부적으로 SQLAlchemy의 1차 캐시(Identity Map)를 먼저 조회하고, 캐시에 없거나 만료(`expire_all()`)된 경우 DB 쿼리를 수행한다.
 - **`select(Model).where(...)` + `scalar_one_or_none()`**:
   - 기본키가 아닌 다른 컬럼(예: `email`, `code`)이나 복합 조건으로 조회할 때 필수적이다.
-  - 조건에 부합하는 레코드가 2개 이상일 경우 `MultipleResultsFound` 예외를 던지므로, 테이블의 유일성(Unique) 제약 조건이 의도대로 유지되는지 검증할 때 매우 유용하다.
+  - 1차 캐시를 건너뛰고 항상 DB에 `SELECT` 쿼리를 발행하며, 조건에 부합하는 레코드가 2개 이상일 경우 `MultipleResultsFound` 예외를 발생시키므로 테이블의 유일성(Unique) 제약 조건 검증에도 유용하다.
 
 ### 6.3 SAVEPOINT 중첩 트랜잭션 롤백
-실제 PostgreSQL 데이터베이스에 데이터를 쓰면서 테스트를 수행하면, 테스트가 끝난 뒤 테이블에 레코드가 계속 쌓여 다음 테스트에 영향을 미친다. 매번 테이블을 TRUNCATE하거나 삭제하는 방식은 속도가 지나치게 느려진다.
+실제 PostgreSQL 데이터베이스에 데이터를 쓰면서 테스트를 수행하면, 테스트가 끝난 뒤 테이블에 레코드가 계속 쌓여 다음 테스트에 영향을 미친다. 매번 테이블을 `TRUNCATE`하거나 삭제하는 방식은 속도가 지나치게 느려진다.
 
-이를 해결하기 위해 테스트 시작 시 트랜잭션을 열고, 테스트 종료 시 `transaction.rollback()`을 호출하여 모든 변경 사항을 없던 일로 되돌린다. 이때 서비스 코드 내부에서 `session.commit()`을 호출하더라도 전체 롤백이 가능해야 하므로, SQLAlchemy의 `join_transaction_mode="create_savepoint"` 옵션을 활용한다:
+이를 해결하기 위해 테스트 시작 시 트랜잭션을 열고, 종료 시 `transaction.rollback()`으로 모든 변경을 되돌린다. 여기서 `get_engine()`은 프로젝트의 SQLAlchemy `Engine` 반환 함수이고, `open_session`은 라우터가 `Depends(open_session)`으로 주입받는 DB 세션 의존성 함수다. `join_transaction_mode="create_savepoint"` 옵션은 서비스 코드 내부에서 `session.commit()`을 호출하더라도 전체 롤백이 유지되도록 세 단계로 동작한다.
+
+1. 테스트 픽스처가 `connection.begin()`으로 실제 DB의 최외곽 트랜잭션을 연다.
+2. `create_savepoint` 모드는 서비스 코드가 `session.commit()`을 부를 때마다 최외곽 트랜잭션을 확정하는 대신 내부 `SAVEPOINT`만 커밋하고 곧바로 다음 세이브포인트를 연다.
+3. 테스트가 끝나면 최외곽 `transaction.rollback()`이 그동안의 모든 변경을 한 번에 취소하므로 `TRUNCATE` 없이도 DB가 초기 상태로 돌아간다.
 
 ```python
 # tests/conftest.py
@@ -354,33 +378,34 @@ def db_session() -> Generator[Session, None, None]:
 
     # 내부에서 commit이 발생해도 외부 트랜잭션을 보존하도록 savepoint 모드 지정
     session = Session(bind=connection, join_transaction_mode="create_savepoint")
-
-    yield session
-
-    # 테스트 종료 후 세션을 닫고 트랜잭션을 완전히 되돌린다.
-    session.close()
-    transaction.rollback()
-    connection.close()
+    try:
+        yield session
+    finally:
+        # 테스트 실패로 예외가 나도 세션을 닫고 트랜잭션을 반드시 되돌린다.
+        session.close()
+        transaction.rollback()
+        connection.close()
 
 
 @pytest.fixture
 def client(db_session: Session) -> Generator[TestClient, None, None]:
     """DB 세션이 롤백 세션으로 오버라이드된 TestClient."""
     app.dependency_overrides[open_session] = lambda: db_session
-
-    with TestClient(app) as test_client:
-        yield test_client
-
-    app.dependency_overrides.clear()
+    try:
+        with TestClient(app) as test_client:
+            yield test_client
+    finally:
+        # 예외가 발생해도 의존성 오버라이드가 다음 테스트로 새어나가지 않게 정리한다.
+        app.dependency_overrides.clear()
 ```
 
 이 설정을 적용하면 테스트가 실행되는 동안에는 실제 DB에 데이터가 기록되고 조회가 가능하지만, 테스트가 끝나는 순간 트랜잭션이 롤백되어 DB가 깨끗한 초기 상태를 유지한다.
 
 ---
 
-## 7. 외부 통신 차단과 몽키패치 활용
+## 7. 외부 통신 차단과 모킹
 
-백엔드 시스템이 OpenAI API나 결제 게이트웨이 같은 외부 네트워크 서비스와 연동되어 있을 때, 테스트 실행 도중 실수로 실제 외부 서버로 HTTP 요청이 나가는 것은 반드시 차단해야 한다. 불필요한 API 비용이 발생할 뿐만 아니라, 네트워크 지연으로 인해 테스트 실행 속도가 느려지고 외부 장애에 영향을 받기 때문이다.
+백엔드 시스템이 OpenAI API나 결제 게이트웨이 같은 외부 네트워크 서비스와 연동되어 있을 때는 테스트 격리가 더욱 중요하다. 테스트 실행 도중 실수로 실제 외부 서버로 HTTP 요청이 나가는 경로를 차단해야 한다. 불필요한 API 비용을 막고, 네트워크 지연이나 외부 장애가 테스트 결과를 흔들지 않도록 제어하기 위함이다.
 
 ### 7.1 dependency_overrides의 한계와 monkeypatch의 등장
 앞선 5장에서 FastAPI의 `app.dependency_overrides`를 통해 가짜 사용자를 주입하는 법을 배웠다. 그렇다면 외부 API 통신도 `dependency_overrides`로 막을 수 없을까?
@@ -409,7 +434,7 @@ def reject_model_calls(monkeypatch: pytest.MonkeyPatch) -> None:
 ```
 
 - **`autouse=True`**: 개별 테스트 함수의 매개변수에 `reject_model_calls`를 일일이 적지 않아도, pytest 러너가 테스트 스위트 내의 모든 테스트 함수에 대해 자동으로 이 픽스처를 활성화한다.
-- **`*args: object, **kwargs: object`**: `httpx.post("https://...")`가 내부적으로 어떤 URL, 헤더, 타임아웃 인자를 전달하더라도 에러 없이 모두 흡수하여 곧바로 차단 예외를 던지도록 가변 인자로 구성한다.
+- **`*args: object, **kwargs: object`**: `httpx.post("https://...")`가 내부적으로 어떤 URL, 헤더, 타임아웃 인자를 전달하더라도 에러 없이 모두 흡수하여 곧바로 차단 예외를 발생시키도록 가변 인자로 구성한다.
 
 ### 7.3 with pytest.raises를 통한 차단 동작 검증
 위 차단 장치가 실제로 작동하는지 검증하기 위해 `with pytest.raises(...)` 컨텍스트 매니저를 사용할 수 있다.
@@ -429,4 +454,15 @@ def test_external_call_is_blocked() -> None:
     assert "테스트 도중 허가되지 않은 외부 HTTP 요청 발생" in str(exc_info.value)
 ```
 
-이러한 차단 픽스처를 설정해 두면, 개발자가 테스트를 작성할 때 외부 통신 모킹을 누락하더라도 실제 네트워크로 요청이 전송되지 않고 테스트 프레임워크가 즉시 실패를 알려주므로 격리된 테스트 환경을 유지할 수 있다.
+이러한 차단 픽스처를 설정해 두면 개발자가 테스트에서 외부 통신 모킹을 누락해도 실제 네트워크 요청이 나가지 않는다. 테스트 프레임워크가 즉시 실패를 알려주므로 안전하게 격리된 테스트 환경을 유지할 수 있다.
+
+---
+
+## 8. 요약
+
+백엔드 테스트는 다음 네 가지 장치로 실행 결과의 재현성과 격리를 보장한다.
+
+1. **진입점과 응답 방어**: `TestClient`와 Pydantic 스키마로 잘못된 요청을 `422` 단계에서 조기 차단하고, 응답 검증 시 `isinstance(data, dict)`와 `detail` 원인 필드를 확인한다.
+2. **예외에 안전한 픽스처 정리**: `conftest.py`의 `yield`와 `try...finally` 블록으로 테스트가 실패하더라도 `dependency_overrides`를 원상 복구한다.
+3. **실제 DB 검증과 롤백 격리**: `flush()` 직후 `expire_all()`로 Identity Map 캐시를 비워 실제 SQL 조회를 검증하고, `create_savepoint`와 최외곽 `rollback()`으로 테스트 간 데이터 오염을 막는다.
+4. **전역 외부 통신 차단**: `autouse=True`와 `monkeypatch`로 `Depends()` 바깥의 서드파티 HTTP 호출까지 사전 차단해 비용 누수와 네트워크 의존을 없앤다.

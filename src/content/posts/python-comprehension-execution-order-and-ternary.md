@@ -1,30 +1,21 @@
 ---
 title: "파이썬 컴프리헨션 구조 분해: 실행 순서와 삼항 연산자 중첩"
-description: "실제 프로젝트 코드를 읽다가 컴프리헨션 문법이 헷갈려 공부하며 정리한 글이다. 작성 순서와 실제 실행 순서의 차이, 그리고 삼항 연산자(if-else)가 결합될 때 주의할 점을 단계별로 짚어본다."
+description: "파이썬 컴프리헨션의 작성 순서와 실제 실행 순서 차이, 필터 if와 삼항 연산자 위치 규칙, 제너레이터 조기 종료와 깊은 복사 패턴을 정리한다."
 pubDate: "2026-10-14 11:30:00"
 tags: ["Python", "Comprehension", "Refactoring", "DataEngineering"]
 categories: ["Python"]
 draft: false
 ---
 
-파이썬 컴프리헨션(Comprehension)은 코드를 한 줄로 간결하게 줄여주는 유용한 문법이다. 하지만 코드를 왼쪽에서 오른쪽으로 읽는 순서와 파이썬 인터프리터가 실제로 코드를 실행하는 순서가 달라서, 코드가 조금만 복잡해져도 바로 읽히지 않는 경우가 많다.
+파이썬 컴프리헨션(Comprehension)은 코드를 한 줄로 간결하게 줄여주는 유용한 문법이다. 하지만 코드를 왼쪽에서 오른쪽으로 읽는 순서와 인터프리터가 실제로 평가하는 순서가 반대다. 이 때문에 조건이나 중첩 구조가 붙으면 흐름이 한눈에 들어오지 않는다.
 
-특히 복잡한 도메인 객체를 다루는 코드에서 `getattr`이나 삼항 연산자(`if-else`), 중첩 세트(Set)가 한데 얽히면 어디에 `if`가 붙어야 하고 무엇이 먼저 실행되는지 헷갈리기 쉽다. 실제 프로젝트 코드를 분석하면서 눈에 걸렸던 5가지 패턴을 일반 `for`문으로 풀어보고, 인터프리터의 실행 순서와 작성 시 주의할 점을 단계별로 정리했다.
+`getattr` 조회, `if-else` 삼항 연산자, 중첩 집합(Set)이 함께 얽힌 다섯 가지 대표 패턴을 일반 `for` 루프로 풀어 설명한다. 각 패턴마다 실행 가능한 데이터와 출력 예시를 곁들여 실행 순서와 작성 규칙을 정리한다.
 
 ---
 
-## 1. 컴프리헨션의 실제 실행 순서
+## 1. 컴프리헨션의 실행 순서
 
-컴프리헨션이 한눈에 들어오지 않는 이유는 작성하는 순서와 파이썬이 평가하는 순서가 반대이기 때문이다.
-
-```python
-[ 결과_표현식   for 변수 in 이터러블   if 필터_조건 ]
-  └─ (3) 최종 수집  └─ (1) 바깥 루프      └─ (2) 조건 검사
-```
-
-### 파이썬 인터프리터의 실행 순서
-
-파이썬 인터프리터는 괄호 안의 코드를 왼쪽부터 차례대로 실행하지 않는다. 일반적인 들여쓰기 기반의 중첩 제어문과 동일하게 바깥쪽 루프부터 안쪽으로 실행한다.
+컴프리헨션이 낯설게 읽히는 이유는 작성 순서와 인터프리터의 평가 순서가 어긋나기 때문이다. 기본 문법 골격은 `[결과_표현식 for 변수 in 이터러블 if 필터_조건]` 형태지만, 실제 실행은 가운데 `for`부터 시작해 오른쪽 필터를 거친 뒤 맨 왼쪽 표현식으로 돌아온다.
 
 ```mermaid
 flowchart TD
@@ -39,231 +30,256 @@ flowchart TD
 2. **(2) 검사 (`if ...`)**: 꺼낸 원소가 조건식을 만족하는지 검사한다. 거짓이면 아무 작업도 하지 않고 다음 원소로 넘어간다(`continue`).
 3. **(3) 적재 (`결과 표현식`)**: 조건을 통과한 원소에 대해서만 맨 앞의 표현식을 평가하여 리스트, 세트, 또는 딕셔너리에 담는다.
 
-일반 `for` 루프에서 매번 `list.append()` 함수를 호출하는 것에 비해, 컴프리헨션은 CPython 내부의 전용 바이트코드(`LIST_APPEND`, `MAP_ADD`)를 사용하므로 함수 호출 비용 없이 C 수준에서 빠르게 컨테이너를 생성한다.
+일반 `for` 루프에서 매번 `list.append()` 메서드를 호출하는 방식과 달리, 컴프리헨션은 CPython 전용 바이트코드(`LIST_APPEND`, `MAP_ADD`)를 사용한다. 따라서 파이썬 함수 호출 비용 없이 C 수준에서 빠르게 컨테이너를 채운다.
 
 ---
 
-## 2. 단순 매핑과 인덱싱 딕셔너리
+## 2. 매핑과 딕셔너리 인덱싱
 
-목록 데이터를 순회하면서 고유 ID를 키로 삼는 딕셔너리를 만드는 패턴이다.
+목록 데이터를 순회하면서 고유 ID를 키로 삼는 딕셔너리를 만드는 패턴이다. 주문 목록을 매번 처음부터 끝까지 뒤지지 않고($O(N)$), 주문 번호로 곧바로 꺼내기 위해($O(1)$) 자주 쓴다.
 
 ```python
-assertions = {item.id: item for item in table.assertions}
+from dataclasses import dataclass
+
+@dataclass
+class Order:
+    id: str
+    total: int
+
+orders = [Order("ORD-101", 32000), Order("ORD-102", 18500)]
+
+# 컴프리헨션: 주문 ID를 키로, Order 객체를 값으로 묶은 조회용 딕셔너리 생성
+order_map = {order.id: order for order in orders}
+print(order_map["ORD-102"])
+# 출력: Order(id='ORD-102', total=18500)
 ```
 
-### 일반 for문으로 풀어쓴 코드
+위 한 줄을 일반 `for`문으로 풀면 빈 딕셔너리에 키와 값을 순서대로 대입하는 구조와 같다.
+
 ```python
-assertions = {}
-for item in table.assertions:
-    key = item.id
-    val = item
-    assertions[key] = val
+order_map = {}
+for order in orders:
+    key = order.id
+    order_map[key] = order
 ```
 
-### 동작 원리와 주의할 점
-
-이 코드는 목록(`table.assertions`)을 순회하며 각 객체의 `item.id`를 키(Key)로, 객체 자체(`item`)를 값(Value)으로 매핑한다. 목록 전체를 매번 선형 탐색($O(N)$)하지 않고, 특정 ID의 객체를 $O(1)$로 빠르게 조회하기 위한 룩업 딕셔너리를 만들 때 자주 사용된다.
-
-이 패턴에서 주의할 점은 **키 중복**이다. 파이썬 딕셔너리는 이미 존재하는 키에 새로운 값을 넣으면 에러를 발생시키지 않고 기존 값을 덮어쓴다(Last Write Wins). 만약 원본 데이터에 실수로 동일한 `item.id`를 가진 객체가 중복으로 포함되어 있다면, 뒤에 나온 객체가 앞선 객체를 덮어써서 데이터가 유실된다.
-
-따라서 ID의 고유성이 보장되지 않는 데이터라면 컴프리헨션 전후에 길이가 같은지 확인하거나, 중복이 허용되는 경우 값을 리스트로 모아주는 `collections.defaultdict(list)`를 사용하는 것이 안전하다.
+이 패턴에서 주의할 점은 **키 중복**이다. 파이썬 딕셔너리는 이미 존재하는 키에 새 값을 넣어도 에러를 내지 않고 기존 값을 덮어쓴다(Last Write Wins). 원본 목록에 같은 `id`가 두 번 들어 있으면 앞선 주문 데이터가 소리 없이 사라진다. ID 고유성을 반드시 지켜야 한다면 변환 전후 길이를 비교해 즉시 예외를 발생시키거나, 중복 목록을 묶는 `collections.defaultdict(list)`를 선택해야 한다.
 
 ```python
-# ID 중복 유입으로 인한 데이터 유실 감지
-assertions = {item.id: item for item in table.assertions}
-if len(assertions) != len(table.assertions):
-    raise ValueError("중복된 ID가 존재하여 데이터가 유실되었습니다.")
+if len(order_map) != len(orders):
+    raise ValueError("중복된 주문 ID가 존재해 데이터가 유실됨.")
 ```
 
 ---
 
-## 3. 조건 필터와 if문의 위치 규칙
+## 3. 조건 필터와 if 위치
 
-특정 객체의 여러 필드 중 상태가 모호한(`"ambiguous"`) 필드 목록만 추려내는 패턴이다.
+여러 속성 이름이 문자열 목록에 들어 있을 때, 특정 상태 조건을 만족하는 필드 이름만 추려내는 상황이다. 주문 검수 단계에서 아직 `"pending"` 상태인 항목만 모아 알림을 보낼 때 유용하다.
 
 ```python
-unresolved_roles = [
-    field for field in ROLE_FIELDS 
-    if getattr(assertion, field).status == "ambiguous"
+from dataclasses import dataclass
+
+@dataclass
+class Stage:
+    status: str
+
+@dataclass
+class OrderWorkflow:
+    payment: Stage
+    inventory: Stage
+    shipping: Stage
+
+CHECK_FIELDS = ["payment", "inventory", "shipping"]
+workflow = OrderWorkflow(
+    payment=Stage("done"),
+    inventory=Stage("pending"),
+    shipping=Stage("pending"),
+)
+
+# for 뒤의 if 필터로 상태가 "pending"인 단계 이름만 골라낸다.
+pending_steps = [
+    field for field in CHECK_FIELDS
+    if getattr(workflow, field).status == "pending"
+]
+print(pending_steps)
+# 출력: ['inventory', 'shipping']
+```
+
+필드명이 문자열 목록(`CHECK_FIELDS`)에 담겨 있으므로 `workflow.field`처럼 점 표기법을 쓸 수 없다. 내장 함수 `getattr(workflow, field)`로 속성 객체를 동적 조회한 뒤 `status` 값을 확인한다. 일반 `for`문으로 풀면 다음과 같다.
+
+```python
+pending_steps = []
+for field in CHECK_FIELDS:
+    stage_obj = getattr(workflow, field)
+    if stage_obj.status == "pending":
+        pending_steps.append(field)
+```
+
+여기서 두 가지를 반드시 점검해야 한다.
+1. **`for`문 뒤의 `if`에는 `else`를 쓸 수 없다**: `for` 뒤에 붙는 `if`는 원소를 포함할지 거르는 필터 가드이므로 `else`를 적으면 `SyntaxError`가 난다.
+2. **`None` 속성 참조 차단**: 해당 필드가 없거나 값이 `None`이면 `getattr(...)` 뒤에 `.status`를 읽다가 `AttributeError`로 중단된다. 누락 가능성이 있는 객체라면 바다코끼리 연산자(`:=`)로 `None` 여부를 먼저 검사해야 안전하다.
+
+```python
+pending_steps = [
+    field for field in CHECK_FIELDS
+    if (stage := getattr(workflow, field, None)) is not None
+    and getattr(stage, "status", None) == "pending"
 ]
 ```
 
-### 일반 for문으로 풀어쓴 코드
-```python
-unresolved_roles = []
-for field in ROLE_FIELDS:
-    target_attr = getattr(assertion, field)
-    if target_attr.status == "ambiguous":
-        unresolved_roles.append(field)
-```
+---
 
-### 동작 원리와 주의할 점
+## 4. 객체 복제와 참조 격리
 
-`ROLE_FIELDS = ["subject", "predicate", "object"]`처럼 필드명이 문자열 변수에 담겨 순회할 때는 점 표기법(`assertion.field`)을 쓸 수 없다. 대신 `getattr(assertion, field)`라는 내장 함수를 사용해 동적으로 속성 객체를 꺼낸 뒤 그 객체의 `status` 값을 비교한다.
-
-이 코드에서 주의할 점은 크게 두 가지다.
-
-첫째, **`for`문 뒤에 붙는 `if`는 필터 가드(Filter Guard)**다. 꺼낸 원소를 리스트에 넣을지 말지 결정하는 조건문이므로 `else`를 붙일 수 없다(`else`를 적으면 `SyntaxError`가 발생한다). 조건이 참인 원소만 최종 리스트에 남는다.
-
-둘째, **`NoneType` 속성 참조 에러**다. 만약 `assertion` 객체에 해당 필드가 없거나 속성값이 `None`인 경우, `getattr`은 `None`을 반환한다. 그 상태에서 뒤이어 `.status`를 호출하면 `AttributeError: 'NoneType' object has no attribute 'status'`가 발생하며 전체 프로세스가 중단된다.
-
-따라서 속성값이 비어있을 가능성이 있다면 단락 평가나 할당 표현식(`:=`)을 사용해 `None` 여부를 먼저 확인하는 방어 코드가 필요하다.
+기존 리스트의 객체들을 새 리스트로 옮길 때, 사본을 수정해도 원본이 바뀌지 않게 하려면 깊은 복사를 함께 호출해야 한다. 주문 상품 목록을 임시 결제 목록으로 복제해 할인 옵션을 적용하는 경우를 가정하자.
 
 ```python
-# None 반환에 대비한 안전한 속성 접근
-unresolved_roles = [
-    field for field in ROLE_FIELDS
-    if (role := getattr(assertion, field, None)) is not None 
-    and getattr(role, "status", None) == "ambiguous"
-]
+import copy
+from dataclasses import dataclass
+
+@dataclass
+class CartItem:
+    sku: str
+    options: list[str]
+
+cart_items = [CartItem("SHIRT-BLUE", ["gift-wrap"])]
+
+# 각 원소를 깊은 복사해 중첩 리스트(options)의 참조 공유까지 끊는다.
+checkout_items = [copy.deepcopy(item) for item in cart_items]
+checkout_items[0].options.append("express")
+
+print("원본 옵션:", cart_items[0].options)      # 출력: 원본 옵션: ['gift-wrap']
+print("사본 옵션:", checkout_items[0].options)  # 출력: 사본 옵션: ['gift-wrap', 'express']
 ```
+
+일반 `for`문으로 풀면 각 원소마다 `copy.deepcopy(item)`을 호출해 새 리스트에 담는 흐름이다. *(Pydantic v2 모델이라면 표준 `deepcopy` 대신 `item.model_copy(deep=True)`를 사용한다.)*
+
+```python
+checkout_items = []
+for item in cart_items:
+    checkout_items.append(copy.deepcopy(item))
+```
+
+파이썬 변수 대입은 객체 자체가 아니라 메모리 참조 주소를 복사한다. 복제 없이 `[item for item in cart_items]`만 쓰면 두 리스트가 같은 `CartItem`을 가리킨다. 얕은 복사(`copy.copy` 또는 Pydantic의 `deep=False`) 역시 최상위 객체만 복제하고 내부 리스트(`options`) 참조는 공유하므로, 중첩 컨테이너가 변할 수 있다면 깊은 복사를 명시해야 한다. 반대로 불변 데이터에만 깊은 복사를 남발하면 메모리 비용이 커지므로 가변성에 맞춰 선택한다.
 
 ---
 
-## 4. 메서드 호출과 객체 복제 패턴
+## 5. 제너레이터와 조기 종료
 
-기존 리스트의 객체들을 새 리스트에 담으면서 각 객체를 독립된 메모리 공간에 복제하는 패턴이다.
+수만 건의 사용자 입력 중 길이 제한을 넘는 비정상 데이터가 단 하나라도 있는지 검사할 때는 조기 종료가 중요하다. 아래 예제는 상품 리뷰 목록에서 `2,000`자를 초과하는 리뷰를 발견하는 즉시 검사를 멈추고 `ValueError`를 발생시킨다.
 
 ```python
-row.evidence = [
-    anchor.evidence.model_copy(deep=True) 
-    for anchor in assertion.evidence
-]
+from dataclasses import dataclass
+
+@dataclass
+class Review:
+    text: str
+
+MAX_REVIEWS = 500
+reviews = [Review("배송이 빠릅니다."), Review("길" * 2500), Review("색상이 좋습니다.")]
+
+# 대괄호 [] 없이 any()에 전달하면 제너레이터 표현식으로 평가된다.
+if not (1 <= len(reviews) <= MAX_REVIEWS) or any(len(r.text) > 2000 for r in reviews):
+    raise ValueError("리뷰 개수 또는 길이 제한 초과")
 ```
 
-### 일반 for문으로 풀어쓴 코드
+일반 `for`문으로 풀면 조건을 만족한 첫 번째 원소에서 `break`로 루프를 빠져나가는 구조와 동일하다.
+
 ```python
-copied_evidence = []
-for anchor in assertion.evidence:
-    copied_model = anchor.evidence.model_copy(deep=True)
-    copied_evidence.append(copied_model)
-row.evidence = copied_evidence
+has_oversized_review = False
+for r in reviews:
+    if len(r.text) > 2000:
+        has_oversized_review = True
+        break  # 조건에 걸린 2번째 원소에서 즉시 중단하고 3번째 이후는 읽지 않음
+
+if not (1 <= len(reviews) <= MAX_REVIEWS) or has_oversized_review:
+    raise ValueError("리뷰 개수 또는 길이 제한 초과")
 ```
 
-### 동작 원리와 주의할 점
-
-파이썬의 변수 대입은 객체 자체가 아니라 메모리 주소(참조)를 복사한다. 만약 복제 과정 없이 `anchor.evidence`를 새 리스트에 그대로 담으면, 나중에 `row.evidence`에 담긴 객체의 내부 값을 수정했을 때 원본인 `assertion.evidence`의 값까지 함께 바뀌어버리는 의도치 않은 상태 오염이 발생한다.
-
-이 때문에 Pydantic의 `model_copy(deep=True)`를 호출하여 객체 내부의 중첩 리스트나 딕셔너리까지 완전히 새로운 메모리 주소로 복제한 뒤 새 리스트에 담는 것이다.
-
-주의할 점은 복사의 깊이다. `deep=False`(기본값)로 얕은 복사를 하면 최상위 모델 인스턴스만 복제되고 내부의 가변 속성들은 여전히 원본과 참조를 공유한다. 따라서 내부 컨테이너가 변경될 여지가 있다면 `deep=True`를 명시해야 한다. 반대로 변경될 일이 없는 단순 불변 데이터에 무분별하게 깊은 복사를 남발하면 메모리 할당 오버헤드가 커지므로 데이터의 가변성에 맞춰 복사 수준을 정해야 한다.
+핵심은 `any(...)` 안에 대괄호 `[]`를 쓰지 않는 것이다. `any([len(r.text) > 2000 for r in reviews])`처럼 대괄호를 넣으면, 리스트 컴프리헨션이 실행되어 10,000건 전체 길이를 계산해 임시 리스트를 메모리에 만든 뒤에야 `any`가 동작한다. 반면 대괄호 없는 **제너레이터 표현식**은 값을 하나씩 지연 평가하므로 두 번째 리뷰에서 조건이 참이 되면 나머지 리뷰는 보지도 않고 즉시 종료한다.
 
 ---
 
-## 5. 제너레이터 표현식과 조기 종료
+## 6. 삼항 연산자와 중첩 구조
 
-데이터 목록의 유효성을 검사할 때, 2,000자가 넘는 긴 텍스트 단위가 하나라도 있는지 확인하는 패턴이다.
-
-```python
-if not (1 <= len(units) <= MAX_UNITS) or any(len(u.text) > 2000 for u in units):
-    raise fail("EXTRACTION_UNIT_LIMIT")
-```
-
-### 일반 for문으로 풀어쓴 코드
-```python
-# any()의 동작을 일반 루프로 분해
-has_oversized_unit = False
-for u in units:
-    if len(u.text) > 2000:
-        has_oversized_unit = True
-        break  # 조건 만족 원소를 발견하는 즉시 검사 중단
-
-if not (1 <= len(units) <= MAX_UNITS) or has_oversized_unit:
-    raise fail("EXTRACTION_UNIT_LIMIT")
-```
-
-### 동작 원리와 주의할 점
-
-여기서 핵심은 `any()` 괄호 안에 대괄호 `[]`가 없다는 점이다. 대괄호 없이 작성하면 리스트 컴프리헨션이 아니라 **제너레이터 표현식(Generator Expression)**으로 동작한다.
-
-만약 습관적으로 `any([len(u.text) > 2000 for u in units])`처럼 대괄호를 넣으면, 파이썬은 10,000개의 유닛이 있을 때 10,000개 유닛의 길이를 전부 계산해 임시 리스트를 메모리에 만든 뒤에야 `any` 검사를 시작한다.
-
-반면 대괄호가 없는 제너레이터 표현식은 원소를 하나씩 필요할 때만 계산한다(지연 평가). 따라서 첫 번째 유닛이 2,000자를 넘는다면 나머지 9,999개는 계산하지 않고 즉시 루프를 빠져나와 `True`를 반환한다(Short-circuit / 조기 종료). 데이터 양이 많을수록 메모리와 실행 시간 차이가 크므로, 단일 조건 검사 함수에 전달할 때는 대괄호를 생략하는 것이 원칙이다.
-
----
-
-## 6. 삼항 연산자와 중첩 컴프리헨션
-
-필드 상태가 `"explicit"`이면 후보군 참조 세트(Set)를 만들어 넣고, 그렇지 않으면 빈 세트(`set()`)를 채워 넣는 딕셔너리 생성 패턴이다.
+카테고리가 활성 상태일 때만 사용 가능한 쿠폰 코드 집합(`set`)을 모으고, 비활성 카테고리는 빈 집합(`set()`)으로 채우는 패턴이다. 딕셔너리 컴프리헨션 안에 `if-else` 삼항 연산자와 집합 컴프리헨션이 함께 들어간다.
 
 ```python
-explicit = {
-    field: {
-        mention.candidate_ref
-        for mention in getattr(assertion, field).mentions
-        if mention.candidate_ref is not None
-    }
-    if getattr(assertion, field).status == "explicit"
-    else set()
-    for field in ROLE_FIELDS
+from dataclasses import dataclass
+
+@dataclass
+class Coupon:
+    code: str | None
+
+@dataclass
+class CategoryGroup:
+    active: bool
+    coupons: list[Coupon]
+
+CATEGORIES = ["apparel", "shoes", "outlet"]
+store_groups = {
+    "apparel": CategoryGroup(True, [Coupon("SPRING10"), Coupon(None)]),
+    "shoes": CategoryGroup(False, [Coupon("RUN20")]),
+    "outlet": CategoryGroup(True, [Coupon("CLEAR5")]),
 }
+
+active_coupons = {
+    cat: (
+        {c.code for c in store_groups[cat].coupons if c.code is not None}
+        if store_groups[cat].active
+        else set()
+    )
+    for cat in CATEGORIES
+}
+print(active_coupons)
+# 출력: {'apparel': {'SPRING10'}, 'shoes': set(), 'outlet': {'CLEAR5'}}
 ```
 
-### 3단계 레이어로 나누어 보기
+이 중첩 식을 바깥에서 안쪽으로 세 계층으로 나누어 읽으면 구조가 명확하다.
+1. **바깥 딕셔너리 골격**: `{cat: <값_표현식> for cat in CATEGORIES}`
+2. **값을 결정하는 삼항 연산자**: `<집합_결과> if store_groups[cat].active else set()`
+3. **참일 때 실행되는 안쪽 집합 컴프리헨션**: `{c.code for c in store_groups[cat].coupons if c.code is not None}`
 
-이 코드가 복잡해 보이는 이유는 딕셔너리 컴프리헨션 안에 삼항 연산자와 세트 컴프리헨션이 한꺼번에 들어있기 때문이다. 바깥쪽부터 3단계로 나누어 보면 구조가 단순해진다:
+같은 동작을 일반 `for`문으로 풀면 분기가 더 명확히 드러난다.
 
-```text
-[1단계: 바깥 딕셔너리 골격]
-{ field: <값_표현식> for field in ROLE_FIELDS }
-
-[2단계: 값을 결정하는 삼항 연산자 (if-else)]
-<세트_결과> if status == "explicit" else set()
-
-[3단계: 참일 때 실행되는 안쪽 세트 컴프리헨션]
-{ mention.candidate_ref for mention in ... if mention.candidate_ref is not None }
-```
-
-### 일반 for문으로 풀어쓴 코드
 ```python
-explicit = {}
-
-# 1단계: 역할 필드 순회
-for field in ROLE_FIELDS:
-    field_obj = getattr(assertion, field)
-    
-    # 2단계: 삼항 연산자의 조건 분기
-    if field_obj.status == "explicit":
-        # 3단계: 안쪽 세트 생성 및 None 필터링
-        candidate_set = set()
-        for mention in field_obj.mentions:
-            if mention.candidate_ref is not None:
-                candidate_set.add(mention.candidate_ref)
-        explicit[field] = candidate_set
+active_coupons = {}
+for cat in CATEGORIES:
+    group = store_groups[cat]
+    if group.active:
+        codes = set()
+        for c in group.coupons:
+            if c.code is not None:
+                codes.add(c.code)
+        active_coupons[cat] = codes
     else:
-        explicit[field] = set()
+        active_coupons[cat] = set()
 ```
 
-### 동작 원리와 주의할 점
-
-이 코드는 `KeyError`를 방지하기 위해 분석 대상이 아닌 필드에도 빈 세트(`set()`)를 일관되게 초기화하면서, 대상 필드에 대해서는 `None`을 제외한 고유 식별자 세트를 구성한다.
-
-이 패턴을 작성할 때 가장 흔히 범하는 문법 실수는 **콜론(`:`)의 중복 사용**이다.
-딕셔너리 컴프리헨션에서 콜론은 Key와 Value를 나누는 기호이므로 맨 앞의 `field:` 자리에 딱 한 번만 써야 한다. 콜론 뒤의 Value 자리에 삼항 연산자 전체(`A if 조건 else B`)가 하나의 표현식으로 위치해야 한다.
+이 패턴에서 가장 잦은 문법 실수는 **콜론(`:`)을 두 번 쓰는 것**이다. 딕셔너리 컴프리헨션에서 콜론은 Key와 Value를 나누는 맨 앞 `cat:` 자리에만 쓰고, Value 자리 전체에 `(참일_때_식 if 조건 else 거짓일_때_식)`이 들어가야 한다.
 
 ```python
-# 흔히 발생하는 문법 에러 (SyntaxError)
-explicit = {
-    field: set(...) if 조건 else field: set()   # ❌ else 뒤에 콜론 중복
-    for field in ROLE_FIELDS
-}
+# 문법 오류(SyntaxError): else 뒤에 key: value 콜론을 중복 작성함
+# active_coupons = {cat: set(...) if cond else cat: set() for cat in CATEGORIES}
 
-# 올바른 구조
-explicit = {
-    field: (set(...) if 조건 else set())       # ⭕ Value 자리에 삼항 연산자 배치
-    for field in ROLE_FIELDS
+# 올바른 구조: Value 자리에 삼항 연산자 표현식을 배치
+active_coupons = {
+    cat: (
+        {c.code for c in store_groups[cat].coupons if c.code is not None}
+        if store_groups[cat].active
+        else set()
+    )
+    for cat in CATEGORIES
 }
 ```
 
-또한 `else` 절에서 기본값을 채울 때 전역 상수로 정의된 빈 세트(`DEFAULT_SET = set()`)를 재사용하면 여러 필드가 동일한 세트 인스턴스를 공유하게 되어, 나중에 한 필드에 값을 추가할 때 다른 필드까지 오염되는 버그가 발생한다. 반드시 `else set()`처럼 매번 새로운 인스턴스를 생성해야 한다.
-
-마지막으로 컴프리헨션이 3단계 이상 중첩되면 동료 개발자가 코드를 읽을 때 큰 인지 부하를 겪게 된다. 안쪽 세트 추출 로직이 조금이라도 더 길어진다면 억지로 한 줄로 작성하기보다 독립된 함수(`extract_candidates(field_obj)`)로 분리하는 것이 훨씬 유지보수하기 좋다.
+또한 `else` 절에서 전역 상수 빈 집합(`DEFAULT_SET = set()`)을 공유하면 나중에 한 카테고리에 코드를 추가할 때 다른 비활성 카테고리까지 오염된다. 반드시 `else set()`처럼 매번 새 인스턴스를 만들어야 하며, 내부 집합 필터가 길어지면 억지로 한 줄로 묶기보다 별도 헬퍼 함수로 분리하는 편이 읽기 좋다.
 
 ---
 
-## 7. 정리
+## 7. 핵심 기준 정리
 
-컴프리헨션 문법을 작성할 때 기억할 핵심 기준은 세 가지다:
+컴프리헨션 문법을 작성하거나 읽을 때 확인할 기준은 세 가지다:
 
 1. **실행 순서**: 코드는 왼쪽에서 오른쪽으로 작성하지만, 파이썬은 `for 루프` ➔ `if 필터 검사` ➔ `결과 표현식 평가` 순서로 실행한다.
 2. **`if`의 위치와 역할**:
@@ -272,4 +288,4 @@ explicit = {
 3. **안전한 작성 습관**:
    - 딕셔너리 컴프리헨션에 삼항 연산자를 결합할 때는 콜론(`:`)을 맨 앞에 한 번만 작성하고 Value 자리에 분기식을 넣는다.
    - 대규모 데이터 검증 함수에는 대괄호를 생략한 제너레이터 표현식을 넘겨 조기 종료 효율을 얻는다.
-   - 가변 객체를 다룰 때는 깊은 복사와 독립 인스턴스 생성을 통해 의도치 않은 참조 공유를 방지한다.
+   - 가변 객체를 다룰 때는 깊은 복사와 독립 인스턴스 생성으로 의도치 않은 참조 공유를 방지한다.

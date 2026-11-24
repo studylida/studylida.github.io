@@ -7,42 +7,29 @@ categories: ["Architecture"]
 draft: false
 ---
 
-# [Train Ticket 아키텍처 1편]
-
-> **연재 순서**:  
-> **▶ [제1편] 도메인 구조 & 공통 모듈 (System Overview & ts-common)**  
-> [제2편] 게이트웨이 & 인증 보안 (Gateway, Auth, Security)  
-> [제3편] 철도망 & 스케줄링 (Travel, Train, Route, Planning)  
-> [제4편] 좌석 배정 & 요금 산정 (Seat, Basic, Price)  
-> [제5편] 예매 오케스트레이션 & 주문 처리 (Preserve, Order, Wait-Order)  
-> [제6편] 결제 & 부가서비스 생태계 (Payment, Voucher, Food, Consign)  
-> [제7편] 백오피스 운영망 (Admin Services 5종)  
-> [제8편] 클러스터 배포, 부하 테스트, 그리고 MSA 설계 요약 (Deployment, JMeter, Architecture Review)
+> **연재 1편**: 도메인 구조와 공통 모듈 (`ts-common`) — 게이트웨이 보안, 철도망 스케줄링, 좌석 배정, 예매 주문 오케스트레이션으로 이어지는 8부작 중 첫 번째 글이다.
 
 ---
 
-## 1. 벤치마크 시스템 구조와 개요
+## 1. 시스템 개요와 규모
 
-넷플릭스의 Eureka와 Spring Cloud, 쿠버네티스(Kubernetes)와 서비스 메시(Istio)가 엔터프라이즈의 표준으로 자리 잡았지만, 실제로 **수십 개의 마이크로서비스가 맞물려 돌아가는 대규모 마이크로서비스 시스템**의 내부 코드를 확인할 수 있는 기회는 흔치 않다. 대다수의 튜토리얼 예제는 2\~3개의 토이 서비스 수준에 머물러 있어, 분산 트랜잭션, 데이터 동기화 지연, 폴리글랏 퍼시스턴스, 서비스 간 의존성 복잡도(Dependency Hell) 같은 분산 환경의 구조적 문제를 확인하기 어렵다.
+넷플릭스의 Eureka와 Spring Cloud, 쿠버네티스(Kubernetes)와 서비스 메시(Istio)가 널리 쓰인다. 하지만 수십 개 마이크로서비스가 맞물린 대규모 시스템의 내부 코드를 직접 확인하기는 쉽지 않다. 대다수의 입문 예제는 2\~3개의 작은 서비스만 다룬다. 그 때문에 분산 트랜잭션, 데이터 동기화 지연, 폴리글랏 퍼시스턴스, 서비스 간 의존성 복잡도 같은 실제 운영 문제를 살피기 어렵다.
 
-이러한 구조를 확인하기 적합한 오픈소스 프로젝트가 바로 중국 푸단대학교(Fudan University) SELab/CodeWisdom 팀이 개발한 **Train Ticket**이다.
+이러한 구조를 학습하기 적합한 오픈소스 벤치마크가 중국 푸단대학교(Fudan University) SELab/CodeWisdom 팀이 개발한 **Train Ticket**이다.
 
-```text
-  ┌────────────────────────────────────────────────────────────────────────┐
-  │                           Train Ticket Benchmark                       │
-  │  - 총 46개 마이크로서비스 (Java Spring Cloud, Go, Python, Node.js)        │
-  │  - 총 26개 독립 데이터베이스 (MongoDB, MySQL)                           │
-  │  - 전 세계 학계 및 빅테크 SRE/AIOps/분산추적/장애진단 연구의 표준 벤치마크      │
-  └────────────────────────────────────────────────────────────────────────┘
-```
+| 구성 항목 | 규모 및 기술 스택 | 비고 |
+|---|---|---|
+| **마이크로서비스** | 46개 독립 서비스 (Java Spring Cloud, Go, Python, Node.js) | 비즈니스 경계 기준 7개 도메인 분할 |
+| **데이터베이스** | 26개 독립 DB (MongoDB 24개 + MySQL 2개) | 서비스별 독립 저장소 분리 |
+| **연구 활용 분야** | 분산 추적, AIOps, 장애 진단, 부하 테스트 표준 벤치마크 | 학계 및 클라우드 네이티브 실험 기준 |
 
-Train Ticket은 대규모 정기 인구 이동이 발생하는 **중국 춘절(춘윈·春運) 기간의 철도 예매 시스템(12306.cn)**을 모방하여 제작되었다. 초당 수만 건의 좌석 조회, 순간적인 티켓팅 스파이크, 복잡한 노선 환승 계산, 실시간 결제 및 취소 대기열 처리를 재현하도록 설계되었다.
+Train Ticket은 대규모 인구 이동이 몰리는 **중국 춘절 기간의 철도 예매 시스템(12306.cn)**을 본떠 설계되었다. 초당 수만 건의 좌석 조회와 순간적인 예매 트래픽 폭증, 다구간 환승 계산, 실시간 결제와 취소 대기열 처리를 재현한다.
 
-본 8부작 시리즈의 첫 시작인 제1편에서는 시스템 전체를 구성하는 **7대 도메인 위상(Topology)**, Nacos와 Spring Cloud로 연결된 **인프라 통신 구조**, 왜 NoSQL과 RDBMS를 혼용했는지를 보여주는 **폴리글랏 퍼시스턴스**, 그리고 모든 서비스가 공통 의존하는 공통 라이브러리 **`ts-common` 모듈의 내부 코드와 설계상 주의점**을 살펴본다.
+이번 1편에서는 전체 시스템을 이루는 **7대 도메인 위상(Topology)**과 Nacos 기반 **2단계 라우팅 구조**를 먼저 정리한다. 이어서 NoSQL과 RDBMS를 나눈 **폴리글랏 퍼시스턴스 전략**과, 46개 서비스가 함께 쓰는 공통 라이브러리 **`ts-common`의 설계 결함과 교훈**을 살펴본다.
 
 ---
 
-## 2. 7대 도메인 아키텍처 조감도
+## 2. 7대 도메인 아키텍처
 
 Train Ticket은 46개의 서비스가 무질서하게 흩어져 있는 것이 아니라, 명확한 비즈니스 경계(Bounded Context)에 따라 **7대 도메인**으로 정교하게 분할되어 있다.
 
@@ -129,29 +116,27 @@ flowchart TD
 |---|:---:|---|---|
 | **1. 관문 & 보안** | 8개 | `ts-gateway`, `ts-auth`, `ts-security` | 단일 진입점 라우팅, JWT 토큰 발급, 어뷰징/매크로 호출 차단 |
 | **2. 철도망 & 스케줄** | 8개 | `ts-travel`, `ts-travel2`, `ts-route` | 고속철/일반열차 분리 운영, 정차역 및 스케줄, 다익스트라 환승 탐색 |
-| **3. 좌석 & 요금** | 5개 | `ts-seat`, `ts-price`, `ts-basic` | DB 없는 메모리 비트맵 좌석 배정, 거리·좌석별 요금 산정 파사드 |
+| **3. 좌석 & 요금** | 5개 | `ts-seat`, `ts-price`, `ts-basic` | DB 없는 메모리 비트맵 좌석 배정, 거리와 좌석별 요금 산정 파사드 |
 | **4. 예매 & 주문** | 8개 | `ts-preserve`, `ts-order`, `ts-wait-order` | 거대 분산 트랜잭션 오케스트레이션, 주문 상태 머신 관리, 매진 대기표 |
 | **5. 결제 & 부가생태계**| 12개 | `ts-payment`, `ts-voucher`, `ts-food-*` | 이중 검증 결제, 회계 영수증(ACID), 차내 도시락 배달, 수하물 탁송 |
 | **6. 관리자 운영망** | 5개 | `ts-admin-travel`, `ts-admin-order` | 일반 승객과 분리된 백스테이지 제어, 노선 긴급 편성 및 고객 지원 |
-| **7. 인프라 & 관측성** | - | `nacos`, `jaeger`, `openebs` | 서비스 등록/디스커버리, 분산 추적, 데이터 볼륨 영속화 |
+| **7. 인프라 & 관측성** | - | `nacos`, `jaeger`, `openebs` | 서비스 등록과 디스커버리, 분산 추적, 데이터 볼륨 영속화 |
+
+위 표의 핵심 아키텍처 용어는 각각 다음 역할을 가리킨다.
+- **파사드(Facade)**: `ts-basic-service`처럼 여러 하위 서비스(열차, 노선, 가격, 설정)의 조회 결과를 한 번에 모아 단일 응답 창구로 제공하는 패턴이다.
+- **사거(Saga) 오케스트레이터**: `ts-preserve-service`처럼 여러 마이크로서비스에 걸친 예매 과정을 순차 로컬 트랜잭션으로 호출하고, 중간 실패 시 취소나 보상 요청으로 정합성을 맞추는 패턴이다.
+- **메모리 비트맵 좌석 배정**: `ts-seat-service`가 DB 잠금 대신 이미 판매된 좌석 구간을 비트 배열(Bitmap)로 계산해 빈 좌석을 즉시 고르는 무상태 방식이다.
 
 ---
 
-## 3. 인프라 통신 구조와 Nacos
+## 3. 2단계 라우팅 구조
 
 46개 마이크로서비스가 맞물려 돌아가는 환경에서 외부 트래픽 인그레스와 내부망 통신은 완전히 분리되어야 한다. Train Ticket은 **2단계 라우팅(Two-Tiered Routing)** 아키텍처를 채택했다.
 
-```text
-[외부 클라이언트] ──(HTTP :18888)──▶ [Tier 1: ts-gateway (Spring Cloud Gateway / Netty)]
-                                                     │ (Nacos lb:// 라우팅)
-                                                     ▼
-                                    [Tier 2: ts-preserve (Spring Web / Tomcat)]
-                                           │                 │
-             (Direct S2S: No Gateway)      ▼                 ▼  (Direct S2S: No Gateway)
-                                   [ts-seat-service]   [ts-order-service]
-```
-
-직접 내 프로젝트에 동일한 아키텍처를 구현할 수 있도록, **티어 1(게이트웨이)**과 **티어 2(내부 마이크로서비스)**의 핵심 코드만 압축해서 살펴보자.
+| 계층 | 담당 컴포넌트 및 포트 | 라우팅 및 통신 방식 |
+|---|---|---|
+| **Tier 1 (외부 관문)** | `ts-gateway-service` (Netty, `:18888`) | 클라이언트 HTTP 요청 수신 후 Nacos 캐시 기반 `lb://` 라운드로빈 전달 |
+| **Tier 2 (내부 S2S)** | `ts-preserve-service` 등 내부 서비스 (Tomcat) | 게이트웨이를 다시 거치지 않고 `@LoadBalanced` 클라이언트 로드밸런서로 직접 통신 |
 
 ---
 
@@ -175,8 +160,9 @@ flowchart TD
 </dependencies>
 ```
 
-> **⚠️ 톰캣 vs 네티 의존성 충돌 주의**  
-> Spring Cloud Gateway는 Netty 기반 비동기 엔진(WebFlux)에서만 구동된다. 만약 `spring-boot-starter-web`(Tomcat) 의존성을 함께 넣으면 컨테이너 충돌로 기동 시 즉시 크래시된다. 게이트웨이 모듈에는 절대로 톰캣 의존성을 넣어서는 안 된다.
+> [!WARNING]
+> **톰캣 vs 네티 의존성 충돌 주의**
+> Spring Cloud Gateway는 Netty 기반 비동기 엔진(WebFlux)에서만 구동된다. 여기에 `spring-boot-starter-web`(Tomcat) 의존성을 함께 넣으면 컨테이너 충돌로 기동에 실패한다. 따라서 게이트웨이 모듈에는 톰캣 의존성을 배제해야 한다.
 
 #### ② 라우팅 및 Nacos 연동 설정 (`application.yml`)
 ```yaml
@@ -200,7 +186,7 @@ spring:
             - Path=/api/v1/preserveservice/**
 ```
 
-* **동작 원리**: 클라이언트가 `/api/v1/preserveservice/**`로 요청을 보내면, 게이트웨이의 `ReactiveLoadBalancerClientFilter`가 **`lb://`** 접두사를 감지하고 Nacos 로컬 캐시에서 `ts-preserve-service`의 살아있는 인스턴스 IP 목록을 조회해 라운드로빈으로 프록시한다.
+* **동작 원리**: 클라이언트가 `/api/v1/preserveservice/**`로 요청을 보내면 게이트웨이의 로드밸런서 필터가 동작한다. 이 필터가 **`lb://`** 접두사를 감지하고 Nacos 로컬 캐시에서 `ts-preserve-service`의 활성 인스턴스 IP 목록을 읽어 라운드로빈으로 프록시한다.
 
 ---
 
@@ -229,7 +215,7 @@ spring:
 @EnableDiscoveryClient
 public class PreserveApplication {
 
-    @LoadBalanced // ⚠️ Nacos 인스턴스 변환 인터셉터(LoadBalancerInterceptor) 주입!
+    @LoadBalanced // Nacos 인스턴스 주소 변환용 로드밸런서 인터셉터 주입
     @Bean
     public RestTemplate restTemplate(RestTemplateBuilder builder) {
         return builder.build();
@@ -237,8 +223,9 @@ public class PreserveApplication {
 }
 ```
 
-> **🔍 `@LoadBalanced`의 내부 동작 원리**  
-> `@LoadBalanced`는 `RestTemplate`에 `LoadBalancerInterceptor`를 주입한다. 개발자가 `http://ts-seat-service/...`로 요청을 날리면 인터셉터가 가로채 Nacos 캐시에서 실제 물리 IP(예: `10.244.3.40:12345`)를 찾아 URI를 재조합(Reconstruct)한다. 이 어노테이션이 없으면 일반 도메인으로 인식하여 `UnknownHostException`이 발생한다.
+> [!NOTE]
+> **`@LoadBalanced`의 내부 동작 원리**
+> `@LoadBalanced`는 `RestTemplate`에 클라이언트 로드밸런서 인터셉터를 주입한다. 코드에서 `http://ts-seat-service/...`로 요청을 전송하면, 인터셉터가 가로채 Nacos 캐시에서 실제 물리 IP(예: `10.244.3.40:12345`)를 찾아 URI를 바꾼다. 이 어노테이션이 없으면 일반 호스트 도메인으로 간주해 `UnknownHostException`이 발생한다.
 
 #### ③ 서비스 간 직접 호출 및 타입 안전성 확보 (`PreserveServiceImpl.java`)
 ```java
@@ -251,261 +238,104 @@ public Ticket dispatchSeat(Seat seatRequest, HttpHeaders httpHeaders) {
             targetUrl,
             HttpMethod.POST,
             requestEntity,
-            new ParameterizedTypeReference<Response<Ticket>>() {} // ⚠️ Type Erasure 방지!
+            new ParameterizedTypeReference<Response<Ticket>>() {} // 컴파일 후 제네릭 소거 방지
     );
 
     return responseEntity.getBody().getData();
 }
 ```
 
-> **💡 왜 `ParameterizedTypeReference`를 쓰는가?**  
-> 자바의 **타입 소거(Type Erasure)** 특성상 단순 `Response.class`로 받으면 Jackson은 제네릭 `T`를 알 수 없어 `LinkedHashMap`으로 역직렬화한다. 이후 `(Ticket) response.getData()`를 호출하는 순간 `ClassCastException`이 발생한다. 익명 클래스를 활용한 슈퍼 타입 토큰(`ParameterizedTypeReference`)을 써야 런타임에도 `Ticket` 타입이 안전하게 보존된다.
+> [!NOTE]
+> **왜 `ParameterizedTypeReference`를 쓰는가?**
+> 자바에서는 컴파일이 끝나면 제네릭 타입 정보(`<Ticket>`)가 지워진다(**타입 소거, Type Erasure**). 이 때문에 단순 `Response.class`로 역직렬화하면 Jackson이 내부 `T` 타입을 알지 못해 범용 `LinkedHashMap`으로 변환하고, 이후 `(Ticket) response.getData()` 시점에 `ClassCastException`이 난다. 익명 하위 클래스에 타입 파라미터를 남기는 슈퍼 타입 토큰(`ParameterizedTypeReference`)을 넘겨야 런타임에도 `Ticket` 타입이 보존된다.
 
 ---
 
-## 4. 폴리글랏 퍼시스턴스 분할 전략
+## 4. 폴리글랏 DB 분할 전략
 
-Train Ticket의 영속성 계층(Persistence Layer)은 분산 시스템 설계의 정석적인 교훈인 **폴리글랏 퍼시스턴스(Polyglot Persistence)**의 표본이다. 시스템 초기 설계 기준, 총 26개의 데이터베이스 중 **24개는 MongoDB**를, 단 **2개는 MySQL**을 선택했다.
+Train Ticket의 영속성 계층은 도메인 요구사항에 맞춰 서로 다른 DB 엔진을 조합하는 **폴리글랏 퍼시스턴스(Polyglot Persistence)** 사례다. 초기 설계 기준으로 총 26개 DB 중 **24개는 MongoDB**, **2개는 MySQL**을 사용한다.
 
-```text
- ┌──────────────────────────────────────┐     ┌──────────────────────────────────────┐
- │          MongoDB (24개 서비스)        │     │           MySQL (2개 서비스)          │
- ├──────────────────────────────────────┤     ├──────────────────────────────────────┤
- │ ts-order, ts-travel, ts-route, ...   │     │ ts-voucher-service, ts-auth-service  │
- │ - 복잡하고 계층적인 JSON 도큐먼트     │     │ - 법적/회계적 전자 영수증 및 증빙    │
- │ - 빠른 스키마 변경 및 개발 민첩성    │     │ - 강력한 관계형 무결성 (Foreign Key) │
- │ - 수평적 대량 읽기/쓰기 처리 성능    │     │ - 엄격한 ACID 트랜잭션 보장          │
- └──────────────────────────────────────┘     └──────────────────────────────────────┘
-```
+| 구분 | MongoDB (24개 서비스) | MySQL (2개 서비스) |
+|---|---|---|
+| **대표 서비스** | `ts-order`, `ts-travel`, `ts-route` 등 | `ts-voucher-service`, `ts-auth-service` |
+| **데이터 특성** | 역 목록과 시간표가 중첩된 JSON 도큐먼트 | 정산 영수증 일련번호, 계정 권한 정규화 테이블 |
+| **핵심 선택 이유** | 잦은 스키마 변경과 대량 읽기 처리량 확보 | 외래키(FK) 무결성과 엄격한 ACID 트랜잭션 보장 |
 
 ### 1) 24개 서비스가 MongoDB(NoSQL)를 선택한 이유
-* **계층적·트리형 도메인 모델**: 철도 노선(`Route`)은 역들의 순서 배열(`List<Station>`)을 포함하고 있고, 운행 정보(`Trip`)는 정차역별 도착/출발 시간표를 내장한다. 이를 관계형 DB에 넣으려면 3\~4개의 테이블을 생성하고 복잡한 다대다 조인(JOIN)을 걸어야 하지만, MongoDB는 Document 안에 배열과 서브 도큐먼트로 자연스럽게 직렬화할 수 있다.
+* **계층형 및 트리형 도메인 모델**: 철도 노선(`Route`)은 정차역 배열을 담고, 운행 정보(`Trip`)는 도착 및 출발 시간표를 내장한다. 이를 RDBMS에 두려면 여러 테이블과 다대다 조인(JOIN)이 필요하지만, MongoDB는 한 도큐먼트 안에 배열과 서브 도큐먼트로 바로 저장한다.
 * **대규모 트래픽과 읽기 처리량**: 춘절과 같은 대규모 예매 환경에서는 좌석 조회와 티켓 스케줄 조회가 높은 빈도로 발생한다. MongoDB의 메모리 매핑 구조와 빠른 JSON 도큐먼트 인출 성능이 적합했다.
 
 ### 2) 2개 서비스가 MySQL(RDBMS)을 선택한 이유
 * **`ts-voucher-service` (전자 영수증/바우처)**: 
-  * 파이썬(Tornado)으로 작성된 이 서비스는 열차 탑승 후 승객이 기업 출장비 정산이나 세무 신고를 위해 발급받는 공식 세무 영수증(报销凭证)을 관리한다.
+  * 파이썬(Tornado)으로 작성된 이 서비스는 열차 탑승 후 승객이 기업 출장비 정산이나 세무 신고를 위해 발급받는 공식 세무 영수증을 관리한다.
   * 회계 증빙 서류는 **하나의 주문당 단 1건만 순차 일련번호(`AUTO_INCREMENT voucher_id`)로 유일하게 발급**되어야 하며, 중복 청구나 1원의 오차도 허용되지 않는다.
-  * MongoDB의 비동기 복제 및 최종 일관성(Eventual Consistency) 모델로는 동시성 트래픽 인입 시 중복 발급이나 경합(Race Condition)을 안전하게 방어하기 어렵다. 따라서 명시적인 트랜잭션 격리(`conn.commit()`)와 테이블 고유 제약조건(Unique Key)을 지원하는 MySQL을 채택했다.
+  * MongoDB의 비동기 복제 기반 최종 일관성(Eventual Consistency)만으로는 동시성 요청에서 중복 발급 경합(Race Condition)을 막기 까다롭다. 따라서 명시적 트랜잭션 격리(`conn.commit()`)와 고유 제약조건(Unique Key)을 제공하는 MySQL을 택했다.
 * **`ts-auth-service` / `ts-user-service`**: 사용자의 계정 ID, 비밀번호 해시, 권한 역할(Role) 간의 관계는 전형적인 정규화 대상이자 관계형 모델에 부합한다.
 
-> **💡 [참고: 최신 버전의 MySQL 전환 옵션]**  
-> 최근 Train Ticket 커밋에서는 학계의 결함 주입(Chaos Engineering) 실험 편의를 위해 전 서비스를 독립 MySQL로 띄우는 옵션(`--independent-db`)도 제공한다. 하지만 시스템의 본래 설계 원형에 담긴 **"도메인 특성에 따른 NoSQL vs RDBMS 폴리글랏 선택"**의 공학적 원리는 여전히 유효하다. (이에 대한 환경 구성 및 장애 주입 실습은 [제8편]에서 상세히 다룬다.)
+> [!NOTE]
+> **최신 버전의 MySQL 통합 전환 옵션**
+> 최근 Train Ticket 저장소에서는 결함 주입(Chaos Engineering) 실험 편의를 위해 전 서비스를 독립 MySQL로 띄우는 옵션(`--independent-db`)도 제공한다. 하지만 초기 설계에 담긴 **"도메인 특성에 따른 NoSQL vs RDBMS 선택"** 기준은 여전히 유효하며, 환경 구성은 이후 편에서 다룬다.
 
 ---
 
-## 5. 공통 모듈 코드와 설계 결함
+## 5. 공통 모듈 설계와 교훈
 
-`ts-common`은 46개 마이크로서비스 전역에서 공통 라이브러리(`jar`) 형태로 임포트되는 모듈이다. 모든 DTO 규격, 보안 필터, 상태 머신 Enum, 날짜 유틸이 이곳에 집약되어 있다.
+`ts-common`은 46개 마이크로서비스가 공통 라이브러리(`jar`)로 임포트하는 모듈이다. 모든 DTO 규격, 보안 필터, 상태 머신 Enum, 날짜 유틸이 한곳에 모여 있으며, 유용한 패턴과 함께 운영 시 주의할 안티 패턴이 공존한다.
 
-실제 코드를 열어보면 유용한 설계 패턴과 함께, **시스템 오류를 유발할 수 있는 '안티 패턴'**이 공존하고 있다.
+### 1) HTTP 상태와 비즈니스 플래그 혼동 (`Response<T>`)
 
-### 1) 통신 표준 규격 `Response<T>`와 '상태 코드의 함정'
+모든 서비스 응답을 공통 포맷으로 감싸는 `Response<T>`는 `status`(정수), `msg`, `data` 세 필드를 가진다.
 
 ```java
 // ts-common/src/main/java/edu/fudan/common/util/Response.java
-package edu.fudan.common.util;
-
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import lombok.ToString;
-
-@Data
-@AllArgsConstructor
-@NoArgsConstructor
-@ToString
+@Data @AllArgsConstructor @NoArgsConstructor
 public class Response<T> {
-    /**
-     * 1 true, 0 false
-     */
+    /** 1 true, 0 false */
     Integer status;
     String msg;
     T data;
 }
 ```
 
-#### ⚠️ 엔지니어링 주의점:
-* `status` 필드는 HTTP 상태 코드(200, 400, 500)가 아니라 **자체 비즈니스 플래그(`1: 성공, 0: 실패`)**다.
-* 스프링 컨트롤러가 이 객체를 반환할 때 HTTP 헤더의 응답 코드는 거의 항상 `200 OK`로 내려온다.
-* **함정**: 하위 서비스 호출자가 단순히 HTTP 상태 코드(`response.getStatusCode().is2xxSuccessful()`)만 검사하고 넘어가면, 비즈니스 검증에 실패하여 `status == 0`으로 내려온 에러를 **성공으로 오판하는 심각한 로직 결함**이 발생한다. 반드시 페이로드를 언래핑하여 `response.getStatus() == 1`을 검증해야 한다.
+* 여기서 `status`는 HTTP 상태 코드(`200`, `400`)가 아니라 **자체 비즈니스 플래그(`1: 성공`, `0: 실패`)**다.
+* 스프링 컨트롤러가 이 래퍼를 돌려줄 때 HTTP 헤더는 대체로 성공(`200 OK`)으로 내려간다. 따라서 호출자가 HTTP 상태(`is2xxSuccessful()`)만 확인하면 비즈니스 실패(`status == 0`)를 정상 처리로 오판하는 결함이 생기므로 반드시 `response.getStatus() == 1`을 함께 검증해야 한다.
 
----
+### 2) 예외를 삼키는 기본값 폴백 (상태 코드와 날짜 파싱)
 
-### 2) 주문 상태 머신 `OrderStatus`와 '조용한 실패(Silent Fallback)'
+공통 유틸리티가 잘못된 입력을 만났을 때 명시적 예외 대신 그럴듯한 기본값을 반환하면, 장애 원인이 숨은 채 하위 로직으로 전파된다. `ts-common`에서는 주문 상태 조회와 날짜 파싱 두 곳에서 이 문제가 나타난다.
+
+| 유틸리티 위치 | 잘못된 입력 | 코드의 기본값 반환 | 발생하는 비즈니스 장애 |
+|---|---|---|---|
+| `OrderStatus.getNameByCode` | 알 수 없는 코드(`-1`, `99`) | 0번(`NOTPAID`) 반환 | 오류 로그 없이 미결제 주문으로 처리됨 |
+| `StringUtils.String2Date` | 깨진 날짜 문자열 | `new Date(0)` (`1970-01-01`) 반환 | 새 티켓이 '출발 시각 지난 만료표'로 오판되어 환불 불가 |
 
 ```java
-// ts-common/src/main/java/edu/fudan/common/entity/OrderStatus.java
-public enum OrderStatus {
-    NOTPAID   (0,"Not Paid"),
-    PAID      (1,"Paid & Not Collected"),
-    COLLECTED (2,"Collected"),
-    CHANGE    (3,"Cancel & Rebook"),
-    CANCEL    (4,"Cancel"),
-    REFUNDS   (5,"Refunded"),
-    USED      (6,"Used");
-
-    private int code;
-    private String name;
-
-    OrderStatus(int code, String name){
-        this.code = code;
-        this.name = name;
-    }
-
-    public static String getNameByCode(int code){
-        OrderStatus[] orderStatusSet = OrderStatus.values();
-        for(OrderStatus orderStatus : orderStatusSet){
-            if(orderStatus.getCode() == code){
-                return orderStatus.getName();
-            }
-        }
-        // ⚠️ 안티패턴: 매칭되는 코드가 없으면 기본값으로 0번(NOTPAID)을 반환!
-        return orderStatusSet[0].getName();
-    }
+// 알 수 없는 상태 코드나 파싱 실패 시 예외를 삼키고 기본값으로 폴백하는 대표 패턴
+if (matchingOrderStatus == null) {
+    return OrderStatus.values()[0].getName(); // NOTPAID로 덮음
+}
+try {
+    return formatter.parse(str);
+} catch (Exception e) {
+    return new Date(0); // 1970-01-01 UTC 반환
 }
 ```
 
-#### ⚠️ 코드 분석 포인트:
-* 철도 티켓의 수명주기(Lifecycle)를 7가지 상태로 정의했다.
-* **구현 결함**: `getNameByCode(int code)` 메서드는 유효하지 않은 코드(예: `-1`이나 `99`)가 인입되었을 때 `IllegalArgumentException`을 던지는 대신, 무조건 `orderStatusSet[0]`인 **`NOTPAID`("Not Paid")를 반환**한다.
-* 잘못된 데이터가 들어와도 에러 로그 하나 남기지 않고 정상적인 미결제 주문인 것처럼 처리하는 전형적인 **조용한 실패(Silent Failure)** 안티 패턴이다.
+공통 라이브러리에서는 잘못된 입력을 조용히 감추는 대신 즉시 예외를 발생시켜 호출 단계에서 원인을 드러내야 한다. 또한 매 호출마다 무거운 `SimpleDateFormat`을 새로 생성하는 대신 스레드 세이프한 `java.time.LocalDateTime`을 사용하는 편이 낫다.
 
----
+### 3) 무상태 JWT 로컬 검증과 예외 계층 불일치 (`JWTUtil`, `JWTFilter`)
 
-### 3) 날짜 파싱 유틸 `StringUtils`의 Epoch 반환 버그
+서비스가 46개로 늘어나면 매 API 요청마다 중앙 인증 서버(`ts-auth-service`)에 네트워크로 세션 유효성을 묻는 구조는 병목이자 단일 장애점(SPOF)이 된다. Train Ticket은 클라이언트 토큰 안에 사용자와 권한을 담은 JWT를 로컬 CPU로 검증하는 방식을 택해 네트워크 통신 비용을 줄였다.
 
-```java
-// ts-common/src/main/java/edu/fudan/common/util/StringUtils.java
-public class StringUtils {
-    public static Date String2Date(String str){
-        SimpleDateFormat formatter;
-        if(str.length() > 10){
-            formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        }else{
-            formatter = new SimpleDateFormat("yyyy-MM-dd");
-        }
+| 인증 검증 방식 | 요청 처리 경로 | 지연 및 장애 전파 특성 |
+|---|---|---|
+| **중앙 세션 원격 검증** | 서비스 ➔ `ts-auth` 원격 RPC ➔ Redis/DB | 매 호출마다 네트워크 왕복(RTT) 지연 발생, `ts-auth` 장애 시 전체 마비 |
+| **무상태 JWT 로컬 검증** | 서비스 내부 `JWTUtil`의 HMAC 해시 검증 | 네트워크 I/O 0건(마이크로초 단위), 인증 서버 일시 장애와 격리됨 |
 
-        try{
-            Date d = formatter.parse(str);
-            return d;
-        }catch(Exception e){
-            // ⚠️ 안티패턴: 파싱 에러 시 1970년 1월 1일(Epoch 0) 반환!
-            return new Date(0);
-        }
-    }
-}
-```
+하지만 구현 세부를 보면 두 가지 주의점이 드러난다.
 
-#### ⚠️ 코드 분석 포인트:
-* 날짜 형식이 깨졌거나 잘못된 날짜 문자열이 들어오면 예외를 무시하고(Swallowing) **`new Date(0)` (1970-01-01 00:00:00 UTC)**를 반환한다.
-* 비즈니스 로직에서 `if (ticket.getTravelDate().before(new Date()))`와 같이 열차 출발 시간이 지났는지를 검사할 때, 1970년은 무조건 과거이므로 승객이 방금 예매한 티켓이 시스템상 즉시 '이미 만료된 기차표'로 판정되어 취소/환불이 불가능해지는 버그의 원인이 된다.
-* 또한 Java 8의 불변/스레드 세이프한 `java.time.LocalDateTime` 대신, 호출될 때마다 무거운 `SimpleDateFormat` 인스턴스를 매번 새로 생성(`new`)하여 불필요한 GC 압박을 초래한다.
-
----
-
-### 4) 열차 번호 기반 서비스 분기 `TripId`
-
-```java
-// ts-common/src/main/java/edu/fudan/common/entity/TripId.java
-public class TripId implements Serializable {
-    private Type type;
-    private String number;
-
-    public TripId(String trainNumber){
-        char type0 = trainNumber.charAt(0);
-        switch(type0){
-            case 'Z': this.type = Type.Z; break;
-            case 'T': this.type = Type.T; break;
-            case 'K': this.type = Type.K; break;
-            case 'G': this.type = Type.G; break; // 고속철 (Gaotie)
-            case 'D': this.type = Type.D; break; // 동차 (Dongche)
-            default: break;
-        }
-        this.number = trainNumber.substring(1);
-    }
-}
-```
-
-#### ⚠️ 아키텍처적 함의:
-* 중국 철도의 열차 번호는 첫 글자에 열차 등급이 명시된다:
-  * **G / D**: 시속 250\~350km의 고속철도
-  * **K / T / Z**: 시속 120\~160km의 일반 침대/급행열차
-* 이 작은 문자열 파싱 하나가 전체 시스템에서 주요 분기점을 만든다:
-  * `G` 또는 `D`인 경우 ➔ **`ts-travel-service`** 및 **`ts-order-service`**로 라우팅
-  * `K`, `T`, `Z`인 경우 ➔ **`ts-travel2-service`** 및 **`ts-order-other-service`**로 라우팅
-* 트래픽이 집중되는 고속철과 레거시 일반열차를 물리적인 서비스와 DB 단위로 격리하는 기준점이 바로 `TripId`에 담겨 있다.
-
----
-
-### 5) 분산 환경의 무상태 인증 `JWTFilter`와 `JWTUtil`
-
-```java
-// ts-common/src/main/java/edu/fudan/common/security/jwt/JWTUtil.java
-public class JWTUtil {
-    // ⚠️ 대칭키 하드코딩
-    private static String secretKey = Base64.getEncoder().encodeToString("secret".getBytes());
-
-    public static Authentication getJWTAuthentication(ServletRequest request) {
-        String token = getTokenFromHeader((HttpServletRequest) request);
-        if (token != null && validateToken(token)) {
-            UserDetails userDetails = new UserDetails() {
-                @Override
-                public Collection<? extends GrantedAuthority> getAuthorities() {
-                    return getRole(token).stream()
-                        .map(SimpleGrantedAuthority::new)
-                        .collect(Collectors.toList());
-                }
-                @Override
-                public String getUsername() {
-                    return getUserName(token);
-                }
-                // ... 생략
-            };
-            return new UsernamePasswordAuthenticationToken(userDetails, "", userDetails.getAuthorities());
-        }
-        return null;
-    }
-}
-```
-
-#### 💡 [원격 네트워크 질의 vs 로컬 CPU 암호 연산]: 통신 I/O 구조 비교
-
-* **전통적인 Stateful 세션 / 중앙 집중 검증 방식**:
-  1. 클라이언트가 `ts-order`에 세션 ID나 불투명 토큰(Opaque Token)을 싣고 요청을 보낸다.
-  2. 수신한 `ts-order`는 이 토큰만으로는 유저가 누구인지, 로그인이 유효한지 전혀 알 수 없다.
-  3. 따라서 `ts-order`는 중앙의 `ts-auth-service`로 **원격 네트워크 호출(REST/RPC)**을 보낸다 (`GET http://ts-auth/api/v1/auth/verify?token=...`).
-  4. `ts-auth-service`는 중앙 세션 저장소(Redis)나 DB를 조회하여 세션 유효성과 권한 목록을 읽어온 뒤 JSON 응답으로 직렬화해 네트워크로 반환한다.
-  5. `ts-order`가 이를 역직렬화하여 비로소 스프링 시큐리티 컨텍스트를 구성한다.
-  * ❌ **문제점**: API 호출 1건당 내부에서 왕복 네트워크 홉(RTT)이 매번 추가되고, 서비스 간 I/O 스레드가 블로킹된다. 결과적으로 46개 서비스의 모든 트래픽이 `ts-auth` 한 곳으로 집중되어 **네트워크 대역폭 고갈, 레이턴시 급증, ts-auth 장애 시 전 시스템 마비(SPOF)**를 초래한다.
-
-* **무상태 JWT 로컬 자가 검증 (Train Ticket 방식)**:
-  1. 클라이언트는 로그인 시 발급받은 JWT(`Header.Payload.Signature`)를 요청 헤더에 담아 보낸다. 페이로드에는 이미 사용자 ID, 권한 목록(roles), 토큰 만료 시각이 Base64 JSON 형태로 담겨 있다.
-  2. `ts-order`는 `ts-auth`에 **원격 네트워크 요청을 일절 보내지 않는다(네트워크 통신 0건).**
-  3. 대신 로컬 메모리에 올라와 있는 `ts-common`의 `JWTUtil` 코드를 실행해, `Header + Payload`에 로컬 비밀키를 적용한 해시값(HMAC-SHA256)을 **로컬 CPU 메모리에서 직접 계산(수 마이크로초 $\mu s$ 소요)**한다.
-  4. 계산된 해시가 토큰의 `Signature`와 정확히 일치하고 만료 시간이 지나지 않았다면, 위변조되지 않은 정상 토큰임을 확인하고 즉시 인증을 통과시킨다.
-  * ⭕ **결과**: 네트워크 통신(밀리초 $ms$)이 인메모리 CPU 연산(마이크로초 $\mu s$)으로 대체되어 1,000배 이상 빨라지며, 설령 `ts-auth` 서비스가 일시 다운되더라도 이미 토큰을 발급받은 사용자들의 티켓 예매/조회 요청은 아무런 장애 없이 동작한다.
-
-```text
-[전통적 방식: 원격 질의 오버헤드]
-클라이언트 ──▶ ts-order ──(네트워크 RPC: 지연 & SPOF 발생)──▶ ts-auth ──▶ Redis/DB 조회
-
-[Train Ticket 방식: 무상태 로컬 검증]
-클라이언트 ──▶ ts-order [ts-common: 로컬 CPU에서 HMAC 해시 검증 (네트워크 I/O 0건, μs 단위 완료)]
-```
-
-#### ⚠️ [설계와 구현의 차이]: 로컬 자가 검증은 맞았으나, 하드코딩은 틀렸다
-* 로컬에서 토큰 서명을 검증하려면 각 마이크로서비스가 서명을 풀 '키'를 알고 있어야 하는 것은 맞다. 하지만 표준 권장 방식(Best Practice)은 **비대칭키(RSA/ECDSA)**를 사용하여 `ts-auth`만 Private Key로 서명하고 각 서비스는 Public Key만 환경변수로 배포받거나, 대칭키를 쓰더라도 **환경변수/Secret Manager/K8s Secret**을 통해 런타임에 동적으로 주입받는 것이다.
-* 그런데 Train Ticket 개발팀은 편의를 위해 `JWTUtil.java` 소스 코드에:
-  ```java
-  private static String secretKey = Base64.getEncoder().encodeToString("secret".getBytes());
-  ```
-  형태로 **문자열 `"secret"`을 자바 소스코드에 하드코딩**해 버렸다.
-* 아키텍처 방향(무상태 로컬 자가 검증)은 적절했으나, 구현 방식은 키가 유출되거나 로테이션이 필요할 때 46개 서비스 전체의 도커 이미지를 재빌드하고 재배포해야 하는 보안 안티 패턴을 남겼다.
-
----
-
-### 6) `JWTFilter`와 `TokenException`의 예외 계층 불일치 버그 (HTTP 401이 500으로 변환)
+1. **비밀키 하드코딩**: `JWTUtil`이 HMAC-SHA256 검증용 대칭키 문자열(`"secret"`)을 자바 소스코드에 직접 하드코딩해 두었다. 무상태 로컬 검증 구조 자체는 적절하지만, 키 유출 시 46개 서비스 이미지를 모두 재빌드해야 하므로 환경변수나 Secret Manager 주입 또는 비대칭키(RSA/ECDSA) 공개키 배포를 써야 한다.
+2. **예외 상속 불일치로 인한 상태 코드 왜곡 (`401` ➔ `500`)**:
 
 ```java
 // ts-common/src/main/java/edu/fudan/common/security/jwt/JWTFilter.java
@@ -513,68 +343,45 @@ try {
     Authentication authentication = JWTUtil.getJWTAuthentication(httpServletRequest);
     SecurityContextHolder.getContext().setAuthentication(authentication);
     filterChain.doFilter(httpServletRequest, httpServletResponse);
-} catch (JwtException e) { // ⚠️ io.jsonwebtoken.JwtException만 잡는다!
+} catch (JwtException e) { // io.jsonwebtoken.JwtException 계열만 잡는다
     httpServletResponse.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
 }
 ```
 
-* **구현 결함**: `JWTUtil.java`의 `validateToken()` 메서드는 토큰 만료 시 `io.jsonwebtoken.ExpiredJwtException`을 캐치한 뒤 독자적인 커스텀 예외인 `throw new TokenException("Token expired")`를 던진다.
-* 그런데 `TokenException.java`를 열어보면 `JwtException`을 상속받은 것이 아니라 **`BaseException (RuntimeException)`을 상속**하고 있다!
-* **결과**: `JWTFilter`의 `catch (JwtException e)` 절은 `TokenException`을 전혀 잡지 못한다. 결국 만료된 토큰을 보냈을 때 `401 Unauthorized`로 클라이언트에게 재로그인을 유도하는 정상 응답이 나가는 것이 아니라, 서블릿 컨테이너까지 처리되지 않은 언체크 예외가 전파되어 **`HTTP 500 Internal Server Error`**가 발생한다.
+`JWTUtil` 내부의 토큰 검증 메서드는 만료 예외(`ExpiredJwtException`)를 잡은 뒤 자체 커스텀 예외(`TokenException`)를 던진다. 문제는 `TokenException`이 `JwtException`이 아니라 일반 `RuntimeException` 계열(`BaseException`)을 상속한다는 점이다. 이 때문에 `JWTFilter`의 `catch (JwtException e)` 블록이 예외를 잡지 못하고 서블릿 컨테이너까지 전파되어, 인증 실패 응답(`401 Unauthorized`) 대신 서버 내부 오류(`500 Internal Server Error`)가 나간다.
 
----
+### 4) 열차 등급 분기와 모놀리식 공유 커널 (`TripId`와 공통 모듈 결합도)
 
-### 7) `JsonUtils.java`의 비효율적 직렬화와 NPE 발생 원인
+열차 번호 식별자 `TripId`는 첫 글자(고속철 `G/D` vs 일반열차 `K/T/Z`)만 보고 열차 등급을 판별한다. 이를 기준으로 트래픽이 몰리는 고속철 서비스(`ts-travel`, `ts-order`)와 일반열차 서비스(`ts-travel2`, `ts-order-other`)를 물리적으로 분리한다.
 
 ```java
-// ts-common/src/main/java/edu/fudan/common/util/JsonUtils.java
-public static String object2Json(Object obj) {
-    String result = null;
-    try {
-        ObjectMapper objectMapper = new ObjectMapper(); // ⚠️ 매 요청마다 무거운 인스턴스 생성!
-        result = objectMapper.writeValueAsString(obj);
-    } catch (IOException e) {
-        JsonUtils.LOGGER.error("[object2Json][writeValueAsString][IOException: {}]", e.getMessage());
-    }
-    return result; // ⚠️ 에러 시 null 반환!
-}
-
-public static <T> T conveterObject(Object srcObject, Class<T> destObjectType) { // ⚠️ 메서드명 오타
-    String jsonContent = object2Json(srcObject);
-    return json2Object(jsonContent, destObjectType);
-}
+// ts-common/src/main/java/edu/fudan/common/entity/TripId.java
+char type0 = trainNumber.charAt(0); // 'G'/'D' ➔ 고속철 도메인, 'K'/'T'/'Z' ➔ 일반열차 도메인
+this.type = Type.valueOf(String.valueOf(type0));
+this.number = trainNumber.substring(1);
 ```
 
-* **GC 오버헤드**: Jackson의 `ObjectMapper`는 Thread-safe하며 생성 시 수많은 직렬화 캐시와 리플렉션 메타데이터를 초기화하므로 객체 생성 비용이 높다. 이를 `static final` 싱글톤으로 재사용하지 않고 JSON 직렬화/역직렬화 메서드가 불릴 때마다 `new`로 생성하여 힙 메모리 낭비와 **Young Gen GC 스톱더월드(STW)** 지연을 초래한다.
-* **오타 및 예외 무시**: 메서드 명에 오타(`conveterObject`)가 방치되어 있을 뿐 아니라, 객체 변환 시 JSON 문자열로 직렬화했다가 다시 역직렬화하는 비효율을 유발한다. 또한 직렬화 실패 시 예외를 전파하지 않고 `null`을 반환하여 호출 측으로 `NullPointerException`이 연쇄 전파된다.
+반면 공통 모듈 `ts-common` 자체가 모든 서비스를 강하게 묶는 결합점도 만들어낸다.
+* **매 요청 직렬화 객체 할당**: JSON 변환 유틸리티(`JsonUtils`)가 스레드 세이프한 Jackson `ObjectMapper`를 `static final` 상수로 재사용하지 않고, 호출할 때마다 `new ObjectMapper()`를 생성한다. 게다가 직렬화 실패 시 예외 대신 `null`을 반환해 호출 측 `NullPointerException`으로 번진다.
+* **44개 엔티티를 한곳에 모은 공유 커널(Shared Kernel)**: `ts-common` 패키지 하나에 `Order`, `Route`, `Seat`, `Food`, `Station`, `User` 등 44개 도메인 모델이 함께 들어 있다. 이 구조에서는 `Order` 필드 하나만 바꿔도 주문과 무관한 `ts-avatar-service`나 `ts-station-service`까지 의존성 재컴파일과 영향도 검증을 거쳐야 해 독립 배포가 어려워진다.
 
 ---
 
-### 8) 44개 도메인 모델을 하나로 묶은 '모놀리식 공통 라이브러리'
+## 6. 아키텍처 핵심 정리
 
-* `ts-common/src/main/java/edu/fudan/common/entity/`를 들여다보면 `Order`, `Route`, `Seat`, `Food`, `Station`, `User` 등 **시스템 내의 거의 모든 핵심 엔티티 44개가 단일 패키지에 결합되어 있다.**
-* 이는 마이크로서비스 간의 경계(Bounded Context)를 허물고 서비스 간 느슨한 결합(Decoupling)을 약화시키는 **모놀리식 공유 커널(Shared Kernel) 안티 패턴**이다.
-* 단지 `Order` 엔티티의 필드 하나를 수정했을 뿐인데, 티켓 주문과 아무런 연관이 없는 `ts-avatar-service`나 `ts-station-service`까지 `ts-common` 의존성 충돌로 인해 재컴파일 및 영향도 검증을 받아야 하므로, 시스템 결합도를 비정상적으로 높인다.
+제1편에서 확인한 Train Ticket의 아키텍처는 분산 시스템 설계에 다음 네 가지 교훈을 준다.
 
----
-
-## 6. 아키텍처 설계 요약 및 결론
-
-제1편을 통해 살펴본 Train Ticket의 구조는 마이크로서비스 설계에 대한 4가지 핵심 시사점을 제시한다:
-
-1. **도메인별 트래픽 격리**: 고속철(`ts-travel`)과 일반열차(`ts-travel2`), 고속철 주문(`ts-order`)과 일반 주문(`ts-order-other`)을 물리적으로 분리하여 특정 열차 티켓팅 트래픽 스파이크가 전체 철도망으로 전파되지 않도록 설계했다.
-2. **2단계 라우팅의 효율성**: 인그레스는 게이트웨이를 통해 단일화하되, 내부 서비스 간 통신(S2S)은 Nacos 기반의 클라이언트 사이드 로드밸런싱으로 다이렉트 통신하여 불필요한 네트워크 오버헤드를 제거했다.
-3. **폴리글랏 퍼시스턴스의 목적성**: NoSQL(MongoDB)의 스키마 유연성과 RDBMS(MySQL)의 회계적 무결성을 비즈니스 특성에 맞게 분리 적용했다.
-4. **공통 모듈(`common`)의 무거움과 안티 패턴 경계**: 
-   * 공통 모듈에 포함된 작은 유틸리티 메서드의 '예외 무시 처리(`new Date(0)`)'나 '기본값 폴백(`NOTPAID`)'은 분산 환경 전체로 전파되어 추적하기 어려운 버그를 만들어낸다.
-   * `JWTFilter`와 `TokenException`처럼 예외 상속 계층이 어긋나면 HTTP 401이 500 에러로 왜곡되며, `JsonUtils`처럼 무거운 유틸 객체를 매번 `new`로 생성하면 GC 병목을 유발한다.
-   * 무엇보다 전 도메인 엔티티 44개를 공통 모듈에 한데 묶는 모놀리식 라이브러리 설계는 서비스 간의 독립 배포를 저해하는 요인이 된다.
+1. **도메인별 트래픽 격리**: 고속철(`ts-travel`)과 일반열차(`ts-travel2`), 고속철 주문(`ts-order`)과 일반 주문(`ts-order-other`)을 물리적으로 분리해 특정 열차 예매 트래픽 폭증이 전체 철도망으로 번지지 않게 막았다.
+2. **2단계 라우팅의 효율성**: 외부 인그레스는 게이트웨이로 단일화하되, 내부 서비스 간 통신(S2S)은 Nacos 기반 클라이언트 로드밸런싱으로 직접 연결해 불필요한 경유 지연(Hop)을 없앴다.
+3. **폴리글랏 퍼시스턴스의 목적성**: NoSQL(MongoDB)의 계층 도큐먼트 유연성과 RDBMS(MySQL)의 회계적 무결성을 도메인 특성에 맞춰 구분 적용했다.
+4. **공통 모듈의 최소화와 예외 일관성**: `new Date(0)`이나 `NOTPAID` 같은 기본값 폴백은 장애 원인을 숨기고, `JWTFilter`와 `TokenException` 계층 불일치는 인증 실패(`401`)를 서버 내부 오류(`500`)로 바꾼다. 공통 라이브러리에는 최소 규격만 남기고 도메인 모델 결합을 피해야 한다.
 
 ---
 
-### 🔜 [제2편 예고] 게이트웨이와 인증 보안: API 게이트웨이, 인증, 그리고 어뷰징 차단
-* **다룰 모듈**: `ts-gateway-service`, `ts-auth-service`, `ts-user-service`, `ts-security-service` 등 7개 모듈
-* **핵심 질문**: 
-  * Spring Cloud Gateway의 필터 체인은 어떻게 승객의 요청을 분기하고 CORS를 제어하는가?
-  * `ts-security-service`는 1시간 이내 주문량 조회를 통해 어떻게 매크로 예매를 차단하는가?
-  * 실제 승객 신분증 번호와 연락처는 어떻게 안전하게 관리되는가?
+### 다음 편 예고
+* **주제**: 게이트웨이와 인증 보안 (API 게이트웨이, 인증, 어뷰징 차단)
+* **다룰 모듈**: `ts-gateway-service`, `ts-auth-service`, `ts-user-service`, `ts-security-service`
+* **핵심 질문**:
+  * Spring Cloud Gateway의 필터 체인은 어떻게 승객 요청을 분기하고 CORS를 제어하는가?
+  * `ts-security-service`는 1시간 이내 주문량 조회로 어떻게 매크로 예매를 차단하는가?
+  * 승객 신분증 번호와 연락처 데이터는 서비스 간에 어떻게 관리되는가?
