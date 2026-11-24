@@ -1,6 +1,6 @@
 ---
-title: "RAG 파이프라인 3편(실습): Weaviate 벡터 DB 구축과 청킹, 리랭킹 구현"
-description: "로컬 추론 서버와 Weaviate 클라이언트를 연결하고, 네 가지 방식으로 문서를 나눈 뒤 메타데이터 필터링과 하이브리드 검색, 리랭킹을 결합한 RAG 파이프라인을 파이썬으로 구현한다."
+title: "RAG 파이프라인 3편(실습): Weaviate 벡터 DB와 청킹, 리랭킹 구현"
+description: "로컬 추론 서버와 Weaviate를 연결해 네 가지 청킹 전략을 적용하고, 메타데이터 필터링과 역순위 융합(RRF) 하이브리드 검색, 크로스 인코더 리랭킹 RAG를 구현한다."
 pubDate: "2026-11-06 08:10:00"
 tags: ["RAG", "Weaviate", "Chunking", "HybridSearch", "Reranking", "Python"]
 categories: ["Architecture", "AI"]
@@ -11,17 +11,16 @@ draft: false
 
 ### 로컬 추론 서버(`flask_app.py`)와 Weaviate 연동 구조
 
-이전 글(3편 이론 편)에서는 대규모 문서 검색을 위한 HNSW 그래프 인덱스와 청킹, 그리고 크로스 인코더 리랭킹의 동작 원리를 살펴보았다. 이번 실습 편에서는 오픈소스 벡터 데이터베이스인 **Weaviate**를 활용해 원본 텍스트를 나누어 저장하고, 메타데이터 필터링과 하이브리드 검색, 리랭킹을 거쳐 언어 모델(LLM)의 답변을 생성하는 전체 파이프라인을 코드로 구현한다.
+이전 글(3편 이론)에서는 대규모 문서 검색을 위한 HNSW 그래프 인덱스와 청킹, 그리고 크로스 인코더 리랭킹 원리를 살펴보았다. 이번 글에서는 **Weaviate** 벡터 데이터베이스를 활용해 원본 텍스트를 나누어 저장하고, 메타데이터 필터링과 하이브리드 검색, 리랭킹을 거쳐 언어 모델 답변을 생성하는 파이프라인을 구현한다.
 
-Weaviate에 문서를 적재하거나 시맨틱 검색, 리랭킹을 요청할 때 Weaviate 엔진 자체는 신경망 가중치를 직접 실행하지 않는다. 대신 외부 API(예: OpenAI)나 별도의 추론 컨테이너로 HTTP 요청을 보내 벡터와 점수를 받아온다. 유료 외부 API 없이 로컬 환경에서 이 과정을 처리하기 위해, 실습 환경에서는 백그라운드 스레드로 동작하는 Flask 추론 서버(`flask_app.py`)와 보조 모듈(`utils.py`)을 먼저 구동한다.
-
-Weaviate와 통신하는 로컬 추론 서버의 핵심 엔드포인트 구현을 먼저 확인한다.
+Weaviate 엔진 자체는 신경망 가중치를 직접 실행하지 않는다. 문서를 적재하거나 검색, 리랭킹할 때 외부 API나 별도 추론 서버로 HTTP 요청을 보내 벡터와 점수를 받아온다. 외부 과금 API 없이 로컬에서 이를 처리하기 위해 백그라운드 스레드로 동작하는 Flask 추론 서버(`flask_app.py`)를 먼저 구동한다.
 
 ```python
+import json
+import threading
 from flask import Flask, request, jsonify
 from FlagEmbedding import FlagReranker
 from sentence_transformers import SentenceTransformer
-import threading
 
 # 1. 768차원 임베딩 모델 및 크로스 인코더 리랭커 모델 로드
 embedding_model = SentenceTransformer("BAAI/bge-base-en-v1.5", cache_folder=".models")
@@ -32,7 +31,7 @@ app = Flask(__name__)
 def generate_embedding(prompt):
     return embedding_model.encode(prompt).tolist()
 
-# 2. Weaviate 상태 확인용 헬스 체크 엔드포인트
+# 2. Weaviate가 추론 서버 기동 여부를 확인하는 헬스 체크 엔드포인트
 @app.route("/.well-known/ready", methods=["GET"])
 def readiness_check():
     return "Ready", 200
@@ -41,9 +40,10 @@ def readiness_check():
 def readiness_check_2():
     return jsonify({"status": "Ready"}), 200
 
-# 3. 텍스트 임베딩 생성 엔드포인트 (text2vec-transformers 모듈 호출 대상)
+# 3. 텍스트 임베딩 생성 엔드포인트 (text2vec-transformers 호출 대상)
 @app.route("/vectors", methods=["POST"])
 def vectorize():
+    # Weaviate 버전과 요청 형태에 따라 문자열(str), 딕셔너리(dict), JSON 인코딩 문자열을 모두 흡수해 리스트로 정규화한다
     data = request.json.get("text") if request.json else request.data.decode("utf-8")
     text = json.loads(data) if isinstance(data, str) else data
     if isinstance(text, str):
@@ -53,7 +53,7 @@ def vectorize():
     embeddings = generate_embedding(text)
     return jsonify({"vector": embeddings})
 
-# 4. 크로스 인코더 리랭킹 엔드포인트 (reranker-transformers 모듈 호출 대상)
+# 4. 크로스 인코더 리랭킹 엔드포인트 (reranker-transformers 호출 대상)
 @app.route("/rerank", methods=["POST"])
 def rerank():
     text = request.json
@@ -62,21 +62,27 @@ def rerank():
     if not documents:
         return jsonify({"scores": []})
 
-    # (질문, 후보 문서) 쌍 리스트를 구성하여 크로스 인코더 점수 계산
     compares = [(query, doc) for doc in documents]
     scores = reranker.compute_score(compares)
-    scores_list = scores.tolist() if hasattr(scores, "tolist") else scores
+    # FlagReranker가 후보 수(단건 vs 다건)에 따라 ndarray 또는 list/float을 반환할 수 있어 일관된 리스트로 변환
+    scores_list = scores.tolist() if hasattr(scores, "tolist") else (scores if isinstance(scores, list) else [scores])
 
     reranked_results = [
         {"document": doc_text, "score": float(scores_list[i])}
         for i, doc_text in enumerate(documents)
     ]
     return jsonify({"scores": reranked_results})
+
+# 5. 임포트 즉시 백그라운드 데몬 스레드로 5000번 포트 추론 서버 시작
+threading.Thread(
+    target=lambda: app.run(host="127.0.0.1", port=5000, use_reloader=False),
+    daemon=True,
+).start()
 ```
 
-`flask_app.py`를 임포트하면 백그라운드 스레드(`threading.Thread`)에서 로컬 `5000`번 포트로 위 서버가 실행된다. 이 서버는 두 개의 모델을 메모리에 상주시킨다.
-- **`BAAI/bge-base-en-v1.5`**: 입력된 텍스트를 길이 `768`의 밀집 벡터(Dense Vector)로 변환하는 바이 인코더 임베딩 모델이다. Weaviate가 `/vectors`로 텍스트를 보내면 `{"vector": [...]}` 형태로 임베딩 배열을 반환한다.
-- **`BAAI/bge-reranker-base`**: 질문과 후보 문서 쌍(`compares = [(query, doc) for doc in documents]`)을 동시에 입력받아 관련도 점수를 계산하는 크로스 인코더 모델이다. Weaviate가 1차 검색을 마친 뒤 `/rerank`로 질문과 후보 문서 리스트를 보내면, 각 문서의 재채점 점수를 `{"scores": [{"document": ..., "score": ...}]}` 규격으로 돌려준다.
+`flask_app.py`를 임포트하면 백그라운드 데몬 스레드에서 로컬 `5000`번 포트로 서버가 올라간다.
+- **`BAAI/bge-base-en-v1.5`**: `/vectors` 요청을 받아 텍스트를 `768`차원 밀집 벡터로 바꾼다.
+- **`BAAI/bge-reranker-base`**: `/rerank` 요청으로 질문과 후보 문서 쌍(`compares`)을 받아 정밀 관련도 점수를 반환한다.
 
 ### 임베디드 클라이언트 구동과 포트 초기화
 
@@ -101,19 +107,19 @@ from utils import (
     kill_processes_on_ports
 )
 
-# 이전 세션에서 점유 중인 백그라운드 포트 초기화
+# 이전 실행에서 점유 중인 백그라운드 포트 초기화
 kill_processes_on_ports([5000, 8080, 8079, 8097, 50050, 50051])
 
 import flask_app
 ```
 
-`utils.py`에서 불러온 보조 함수들의 역할은 다음과 같다.
-- **`kill_processes_on_ports`**: 로컬 포트(`5000`번 Flask 서버 및 `8079`, `8080`, `50050`, `50051`번 Weaviate HTTP/gRPC 포트)를 점유하고 있는 이전 프로세스를 찾아 종료한다. 포트 충돌이나 gRPC 연결 끊김(`_InactiveRpcError`)을 방지하기 위해 서버 구동 전에 호출한다.
-- **`suppress_subprocess_output`**: Weaviate 엔진이 백그라운드에서 출력하는 상세 시스템 로그가 노트북 출력을 가리지 않도록 표준 출력과 에러 스트림을 임시로 숨기는 컨텍스트 매니저다.
-- **`print_object_properties`**: 검색된 딕셔너리 객체의 속성을 알파벳순으로 정렬해 출력하되, 본문(`article_content`, `chunk`)이나 벡터 배열(`main_vector`)처럼 긴 필드는 앞부분 30\~100자만 자르고 `...(truncated)`를 붙여 가독성 있게 보여주는 출력 함수다.
-- **`generate_with_single_input`**: 완성된 프롬프트 문자열을 언어 모델 API에 전달하고 생성된 답변 딕셔너리(`{'role': 'assistant', 'content': '...'}`)를 반환하는 함수다.
+`utils.py` 보조 함수들의 역할은 다음과 같다.
+- **`kill_processes_on_ports`**: 로컬 포트(`5000`, `8079`, `8080`, `50050`, `50051`)를 점유 중인 이전 프로세스를 종료해 포트 충돌과 gRPC 끊김을 막는다.
+- **`suppress_subprocess_output`**: Weaviate 엔진이 백그라운드에서 내보내는 장황한 시스템 로그가 실행 출력을 가리지 않도록 임시로 숨긴다.
+- **`print_object_properties`**: 단일 속성 딕셔너리를 받아 알파벳순으로 정렬 출력하되 긴 텍스트나 벡터는 앞부분만 잘라 보여준다.
+- **`generate_with_single_input`**: 프롬프트 문자열을 언어 모델 API에 넘겨 `{'role': 'assistant', 'content': '...'}` 딕셔너리를 반환한다.
 
-백그라운드에서 `flask_app`이 `5000`번 포트로 실행되었으므로, 이 엔드포인트를 바라보는 임베디드 Weaviate 클라이언트를 생성한다.
+백그라운드에서 `flask_app`이 `5000`번 포트로 실행되었으므로 이 엔드포인트를 바라보는 임베디드 Weaviate 클라이언트를 생성한다.
 
 ```python
 with suppress_subprocess_output():
@@ -128,17 +134,15 @@ with suppress_subprocess_output():
     )
 ```
 
-`weaviate.connect_to_embedded`는 별도의 독립 서버를 띄우지 않고 파이썬 애플리케이션 내부에서 Weaviate 엔진을 직접 실행하는 방식이다. `persistence_data_path="./.collections"`를 지정하면 생성된 컬렉션과 HNSW 인덱스 파일이 해당 경로에 영구 저장되어 클라이언트를 종료했다가 다시 열어도 데이터가 유지된다.
-
-`environment_variables` 딕셔너리에는 앞서 살펴본 로컬 Flask 서버와의 연결 정보를 주입한다. `ENABLE_MODULES`에 `'text2vec-transformers, reranker-transformers'`를 선언하여 트랜스포머 기반 벡터화 및 리랭킹 모듈을 활성화하고, 두 모듈이 호출할 추론 서버 주소를 모두 로컬 Flask 서버(`http://127.0.0.1:5000/`)로 지정한다.
+`weaviate.connect_to_embedded`는 별도 서버 컨테이너 없이 파이썬 프로세스 내부에서 Weaviate 엔진을 실행한다. `persistence_data_path="./.collections"`를 지정하면 생성된 컬렉션과 HNSW 인덱스가 디스크에 남아 재실행 시에도 유지된다.
 
 ---
 
-## 2. 네 가지 텍스트 청킹 구현
+## 2. 네 가지 청킹 구현
 
 ### 원본 텍스트 로드와 고정 크기 및 중첩 청킹
 
-벡터 데이터베이스에 문서를 적재하기 전에, 긴 원본 텍스트를 적절한 크기의 조각으로 나누는 청킹(Chunking) 함수를 먼저 구현한다. 실습 데이터로 버전 관리 시스템 Git의 공식 해설서인 *Pro Git*의 1장 섹션(`what-is-git.asc`) 원문을 불러온다.
+벡터 DB에 적재하기 전에 긴 텍스트를 알맞은 크기로 나누는 청킹 함수를 구현한다. 실습 데이터로 *Pro Git* 1장 섹션(`what-is-git.asc`) 원문을 불러온다.
 
 ```python
 url = "https://raw.githubusercontent.com/progit/progit2/main/book/01-introduction/sections/what-is-git.asc"
@@ -156,62 +160,48 @@ By far, the most widely used modern version control system in the world today is
 총 단어 수: 1495 words (약 1944 tokens)
 ```
 
-이 챕터 하나에만 약 1,495단어(약 1,944토큰)가 들어 있다. 이 텍스트를 단어 수 기준 일정한 길이로 자르는 첫 번째 함수인 **고정 크기 청킹(`get_chunks_fixed_size`)**을 작성한다.
+이 챕터에는 약 1,495단어가 들어 있다. 이를 단어 수 기준 일정 길이로 자르는 **고정 크기 청킹(`get_chunks_fixed_size`)**부터 작성한다.
 
 ```python
 def get_chunks_fixed_size(text: str, chunk_size: int) -> List[str]:
-    # 1. 입력 텍스트를 공백 기준 개별 단어 리스트로 분리
     text_words = text.split()
     chunks = []
-
-    # 2. 0번부터 전체 단어 수까지 chunk_size 보폭(step)으로 인덱스 순회
     for i in range(0, len(text_words), chunk_size):
-        # i번째부터 i + chunk_size 직전까지의 단어 슬라이싱
-        chunk_words = text_words[i: i + chunk_size]
-        # 잘라낸 단어 리스트를 다시 공백으로 이어 붙여 하나의 문자열로 결합
-        chunk = " ".join(chunk_words)
+        chunk = " ".join(text_words[i: i + chunk_size])
         chunks.append(chunk)
-
     return chunks
 
 fixed_size_chunks = get_chunks_fixed_size(source_text, chunk_size=100)
 print(f"생성된 청크 수: {len(fixed_size_chunks)}")
+# 출력: 생성된 청크 수: 15
 ```
 
-`text.split()`으로 전체 본문을 단어 리스트(`text_words`)로 만든 뒤, `range(0, len(text_words), chunk_size)`를 사용해 인덱스를 `0, 100, 200, ...` 순서로 건너뛰며 100단어씩 슬라이싱(`text_words[i: i + chunk_size]`)한다. 1,495단어를 100단어씩 자르면 총 `15`개의 청크가 생성된다.
-
-하지만 이 방식은 100번째 단어와 101번째 단어 사이를 무조건 끊어버리므로 문장이 중간에 잘려 문맥이 손실된다. 이를 보완하기 위해 인접한 청크끼리 지정된 비율(`overlap_fraction`)만큼 단어를 공유하는 **중첩 고정 크기 청킹(`get_chunks_fixed_size_with_overlap`)**으로 확장한다.
+100단어씩 자르면 총 `15`개 청크가 만들어진다. 하지만 문장 중간이 무조건 끊어지므로 인접 청크끼리 지정 비율(`overlap_fraction`)만큼 단어를 겹쳐 가져오는 **중첩 청킹(`get_chunks_fixed_size_with_overlap`)**으로 확장한다.
 
 ```python
 def get_chunks_fixed_size_with_overlap(
     text: str, chunk_size: int, overlap_fraction: float
 ) -> List[str]:
     text_words = text.split()
-    # 중첩할 단어 수를 정수로 계산 (예: 100 * 0.2 = 20단어)
     overlap_int = int(chunk_size * overlap_fraction)
     chunks = []
 
     for i in range(0, len(text_words), chunk_size):
-        # 시작 인덱스를 overlap_int만큼 앞으로 당기되, 0보다 작아지지 않도록 방어
-        chunk_words = text_words[max(i - overlap_int, 0): i + chunk_size]
-        chunk = " ".join(chunk_words)
+        # 첫 반복(i = 0)에서 i - overlap_int가 음수 인덱스로 뒤집히지 않도록 max(..., 0)으로 하한 고정
+        chunk = " ".join(text_words[max(i - overlap_int, 0): i + chunk_size])
         chunks.append(chunk)
 
     return chunks
 ```
 
-이 함수에서 가장 주의 깊게 볼 부분은 슬라이싱 시작점인 `max(i - overlap_int, 0)`이다. 만약 `chunk_size = 25`, `overlap_fraction = 0.2`여서 `overlap_int = 5`라고 가정해 본다.
+여기서 `max(i - overlap_int, 0)`이 중요하다. `i = 0`일 때 그냥 `i - overlap_int`로 슬라이싱하면 음수 인덱스(`[-5:25]`)가 되어 첫 청크가 빈 리스트로 비어 버린다. `max(..., 0)`을 걸어 두어야 첫 청크 `0:25`가 보존되고 이후 `20:50`, `45:75`처럼 앞 청크의 마지막 5단어를 겹쳐 가져온다.
 
-첫 번째 반복(`i = 0`)에서 단순히 `text_words[i - overlap_int : i + chunk_size]`라고 작성하면 슬라이싱 범위가 `text_words[-5 : 25]`가 된다. 파이썬 리스트에서 음수 인덱스(`-5`)는 리스트의 끝에서 다섯 번째 요소를 가리키므로, `-5`번부터 `25`번까지 자르면 빈 리스트(`[]`)가 반환되어 첫 번째 청크가 빈 문자열로 들어가는 문제가 생긴다. `max(i - overlap_int, 0)`을 사용하면 `i = 0`일 때 `max(-5, 0)`이 되어 `0:25`를 안전하게 가져오고, 두 번째 반복(`i = 25`)부터는 `20:50`, 세 번째(`i = 50`)는 `45:75`처럼 앞 청크의 마지막 5단어를 겹쳐서 가져온다.
+### 문단 구분자 분할과 버퍼 기반 혼합 청킹
 
-청크 크기를 `5`, `25`, `100`으로 바꾸어 실행해 보면 청크 크기가 작을수록 세부 구절에 집중하지만 문맥이 부족하고, 클수록 문단 전체의 맥락을 담게 되는 차이를 확인할 수 있다.
-
-### 문단 구분자 분할과 버퍼 기반 혼합(Mixed) 청킹
-
-이번에는 단어 수를 세는 대신 문서의 구조적 구분자(Marker)를 기준으로 자르는 가변 크기 청킹을 구현한다. 문단 사이에는 빈 줄(`\n\n`)이 들어가고, AsciiDoc 문서의 하위 섹션 제목 앞에는 `\n==` 기호가 붙는다.
+이번에는 단어 수 대신 문서의 구조 구분자를 기준으로 나눈다. 일반 문단은 빈 줄(`\n\n`)로 나뉘며, *Pro Git* 원문 같은 AsciiDoc 문서는 섹션 제목 앞에 `\n==` 마커가 붙는다.
 
 ```python
-# 1. 빈 줄(\n\n) 기준 문단 단위 분할
+# 1. 빈 줄(\n\n) 기준 문단 분할
 def get_chunks_by_paragraph(source_text: str) -> List[str]:
     return source_text.split("\n\n")
 
@@ -220,13 +210,13 @@ def get_chunks_by_asciidoc_sections(source_text: str) -> List[str]:
     return source_text.split("\n==")
 ```
 
-단순히 `split("\n\n")`이나 `split("\n==")`만 실행하면 한 가지 문제가 나타난다. 첫 번째 조각을 출력해 보면 `'=== What is Git?'`처럼 **본문 없이 단 4단어짜리 소제목만 단독 청크로 분리**된다. 소제목만 들어 있는 청크는 내용이 부족해 검색 가치가 떨어지고, 반대로 뒤에 이어지는 본문 청크는 자신이 어떤 소제목 아래의 글인지 잃어버리게 된다.
+단순히 `split("\n==")`만 실행하면 `'=== What is Git?'`처럼 **본문 없는 4단어짜리 소제목만 단독 청크로 떨어진다.** 소제목만 있는 청크는 검색 가치가 낮고, 뒤따르는 본문은 어느 소제목 아래 글인지 맥락을 잃는다.
 
-이 문제를 해결하려면 구분자(`\n==`)로 먼저 나눈 뒤, **최소 길이(`min_length = 25` 단어)에 미달하는 짧은 조각(소제목 등)을 임시 버퍼(`chunk_buffer`)에 담아두었다가 바로 다음 본문 조각 앞에 이어 붙이는 혼합 청킹(`mixed_chunking`)**을 작성해야 한다.
+이 문제를 막으려면 `\n==` 구분자로 나눈 뒤 짧은 조각을 버퍼에 모았다가 합치는 **혼합 청킹(`mixed_chunking`)**을 구현해야 한다. 최소 길이(`25`단어) 미만인 소제목 조각을 `chunk_buffer`에 쌓아 두었다가 다음 본문 조각 앞에 이어 붙이는 방식이다.
 
 ```python
 def mixed_chunking(source_text: str) -> list:
-    # 1. 섹션 마커(\n==)를 기준으로 1차 분할
+    # 1. AsciiDoc 섹션 마커(\n==)를 기준으로 1차 분할
     chunks = source_text.split("\n==")
 
     new_chunks = []
@@ -234,61 +224,57 @@ def mixed_chunking(source_text: str) -> list:
     min_length = 25
 
     for chunk in chunks:
-        # 이전 반복에서 이월된 버퍼와 현재 조각을 결합
+        # 2. 이전 반복에서 이월된 짧은 조각(소제목 등)과 현재 본문 결합
         new_buffer = chunk_buffer + chunk
         new_buffer_words = new_buffer.split(" ")
 
-        # 결합된 단어 수가 25단어 미만이면 리스트에 넣지 않고 다음 조각으로 이월
+        # 3. 25단어 미만이면 확정하지 않고 다음 조각과 합치기 위해 버퍼에 유지
         if len(new_buffer_words) < min_length:
             chunk_buffer = new_buffer
         else:
-            # 25단어 이상이 되면 완성된 청크로 추가하고 버퍼 초기화
             new_chunks.append(new_buffer)
             chunk_buffer = ""
 
-    # 루프 종료 후 버퍼에 남은 잔여 텍스트가 있다면 마지막 청크로 추가
+    # 4. 문서 맨 끝의 짧은 조각이 버퍼에 남아 유실되지 않도록 마지막 청크로 회수
     if len(chunk_buffer) > 0:
         new_chunks.append(chunk_buffer)
 
     return new_chunks
 ```
 
-첫 번째 조각인 `'=== What is Git?'`은 공백 기준 4단어이므로 `len(new_buffer_words) < 25` 조건에 걸려 `new_chunks`에 바로 들어가지 않고 `chunk_buffer`에 보관된다. 이어서 두 번째 조각(본문 첫 문단)이 들어오면 `new_buffer = chunk_buffer + chunk`를 통해 소제목과 본문이 하나로 합쳐진다. 합쳐진 길이는 25단어를 넘으므로 비로소 `new_chunks`에 등록되고 `chunk_buffer`는 빈 문자열(`""`)로 비워진다. 마지막 `if len(chunk_buffer) > 0:` 구문은 글 맨 끝부분의 짧은 조각이 버퍼에 남은 채 유실되지 않도록 회수하는 방어 코드다.
+첫 조각 `'=== What is Git?'`은 4단어이므로 `chunk_buffer`에 대기하다가 두 번째 본문 조각을 만났을 때 합쳐져 25단어 이상인 온전한 청크로 저장된다.
 
 ### 메타데이터 상속과 전략별 청크 객체 조립
 
-이제 *Pro Git*의 1장과 2장에 수록된 14개 섹션 파일 전체(`book_text_objs`)에 대해 앞서 만든 네 가지 청킹 전략을 일괄 적용한다. 각 원본 섹션 객체는 본문(`body`), 챕터명(`chapter_title`), 파일명(`filename`) 키를 가진 딕셔너리다.
+이제 미리 준비된 *Pro Git* 1장과 2장의 14개 섹션 데이터 파일(`book_text_objs`)을 불러와 구조를 확인하고, 네 가지 전략을 일괄 적용한다.
 
-원본 문서를 여러 청크로 쪼갤 때는 각 청크가 어느 챕터의 어느 파일에서 나온 몇 번째 조각인지 알 수 있도록 원본 메타데이터를 그대로 물려주어야 한다. 이를 수행하는 헬퍼 함수가 `build_chunk_objs`다.
+```python
+# 14개 섹션 딕셔너리 리스트 로드 및 샘플 1건 확인
+book_text_objs = joblib.load("dataset/book_text_objs.joblib")
+print("섹션 수:", len(book_text_objs))
+print("샘플 키:", book_text_objs[0].keys())
+print("챕터 제목:", book_text_objs[0]["chapter_title"], "| 파일명:", book_text_objs[0]["filename"])
+```
+
+원본 문서를 여러 청크로 쪼갤 때는 각 청크가 어느 챕터와 파일의 몇 번째 조각인지 추적할 수 있도록 메타데이터를 물려주어야 한다.
 
 ```python
 def build_chunk_objs(book_text_obj: dict, chunks: list) -> list:
     chunk_objs = list()
-
-    # 분할된 문자열 리스트를 순회하며 인덱스(i)와 텍스트(c) 추출
     for i, c in enumerate(chunks):
-        chunk_obj = {
+        chunk_objs.append({
             "chapter_title": book_text_obj["chapter_title"],
             "filename": book_text_obj["filename"],
             "chunk": c,
             "chunk_index": i
-        }
-        chunk_objs.append(chunk_obj)
-
+        })
     return chunk_objs
-```
 
-`build_chunk_objs`는 단순 문자열 리스트였던 `chunks`를 순회하며, 각 청크 문자열(`c`)에 원본 문서의 `chapter_title`과 `filename`, 그리고 문서 내 순서 번호인 `chunk_index`(`i`)를 결합한 딕셔너리 리스트로 변환한다.
-
-이제 14개 챕터 섹션을 순회하며 네 가지 청킹 전략별로 청크 객체 리스트를 생성해 `chunk_obj_sets` 딕셔너리에 모은다.
-
-```python
 chunk_obj_sets = dict()
 
 for book_text_obj in book_text_objs:
     text = book_text_obj["body"]
 
-    # 4가지 청킹 전략 이름과 분할 결과를 순회
     for strategy_name, chunks in [
         ["fixed_size_25", get_chunks_fixed_size_with_overlap(text, 25, 0.2)],
         ["fixed_size_100", get_chunks_fixed_size_with_overlap(text, 100, 0.2)],
@@ -296,26 +282,22 @@ for book_text_obj in book_text_objs:
         ["para_chunks_min_25", mixed_chunking(text)]
     ]:
         chunk_objs = build_chunk_objs(book_text_obj, chunks)
-
-        if strategy_name not in chunk_obj_sets.keys():
-            chunk_obj_sets[strategy_name] = list()
-
-        chunk_obj_sets[strategy_name] += chunk_objs
+        chunk_obj_sets.setdefault(strategy_name, []).extend(chunk_objs)
 ```
 
-네 가지 전략의 이름(`strategy_name`)이 왜 이렇게 지어졌는지 살펴보면 각 전략의 특성이 한눈에 드러난다.
-- **`fixed_size_25`**: 25단어 고정 크기에 $20\%$ 중첩을 적용한 전략이다.
-- **`fixed_size_100`**: 100단어 고정 크기에 $20\%$ 중첩을 적용한 전략이다.
-- **`para_chunks`**: 문단(Paragraph)이나 섹션 구분자로 단순 분할한 가변 길이 전략이다.
-- **`para_chunks_min_25`**: 구분자 기반 분할(`mixed_chunking`)을 수행하되, 최소 25단어(`min_25`) 미만인 짧은 제목 조각은 다음 본문과 병합한 혼합 전략이다.
+네 가지 전략의 구분은 다음과 같다.
+- **`fixed_size_25`**: 25단어 고정 크기에 $20\%$ 중첩을 적용한 전략
+- **`fixed_size_100`**: 100단어 고정 크기에 $20\%$ 중첩을 적용한 전략
+- **`para_chunks`**: 빈 줄(`\n\n`)로 단순 분할한 가변 길이 문단 전략
+- **`para_chunks_min_25`**: AsciiDoc 섹션 마커(`\n==`)로 나눈 뒤 25단어 미만의 짧은 제목을 다음 본문과 병합한 혼합 전략 (원문 자체가 `\n==` 구분자를 쓰는 AsciiDoc 문서여서 문단 기반 혼합 전략의 하나로 이 이름을 붙였다)
 
 ---
 
 ## 3. 컬렉션 생성과 청킹 실험
 
-### 스키마 정의와 `Tokenization.FIELD` 설정
+### 스키마 정의와 정확 일치 토큰화
 
-전처리된 청크 객체들을 저장할 Weaviate 컬렉션을 생성한다. 컬렉션을 만들 때는 어떤 임베딩 모델로 어떤 속성을 벡터화할지(`vectorizer_config`)와 각 속성의 데이터 타입(`properties`)을 명시해야 한다.
+청크 객체들을 저장할 Weaviate 컬렉션을 생성한다. 컬렉션에는 어떤 속성들을 묶어 벡터화할지와 각 속성의 데이터 타입, 토큰화 규칙을 지정한다.
 
 ```python
 if not client.collections.exists("chunking_example"):
@@ -345,27 +327,25 @@ else:
     collection = client.collections.get("chunking_example")
 ```
 
-컬렉션 생성 코드의 핵심 파라미터들을 하나씩 짚어본다.
-1. **`vectorizer_config` 리스트와 `NamedVectors`**: Weaviate는 동일한 문서 객체에 대해 서로 다른 여러 임베딩 모델의 벡터를 동시에 저장할 수 있도록 설정을 리스트(`[...]`)로 받는다. 여기서는 로컬 Flask 서버(`http://127.0.0.1:5000`)를 호출하는 `text2vec_transformers` 벡터라이저 하나만 등록하고 이름을 `"vector"`로 지정했다.
-2. **`source_properties`와 `vectorize_collection_name`**: 객체의 모든 속성을 다 임베딩할 필요는 없다. `source_properties`에 지정한 속성들만 서로 이어 붙여진 뒤 임베딩 모델로 전달된다. 예를 들어 여행지 추천 데이터셋에서 예산(`budget`) 속성값이 `"Moderate"`일 때, 값만 따로 떼어 임베딩하면 무엇이 보통 수준이라는 뜻인지 알기 어렵다. 이때 `Property(..., vectorize_property_name=True)`로 설정하면 속성 이름과 값을 합쳐 `"budget Moderate"`로 벡터화하므로 의미가 분명해진다. 반면 컬렉션 이름 자체(`"chunking_example"`)는 문맥과 무관하므로 `vectorize_collection_name=False`로 제외한다.
-3. **`tokenization=Tokenization.FIELD`**: `chunking_strategy` 속성에만 특별히 부여된 옵션이다. Weaviate의 기본 텍스트 토큰화 방식(`Tokenization.WORD`)은 공백이나 특수문자, 밑줄(`_`)을 기준으로 단어를 쪼갠다. 만약 기본 설정을 그대로 두면 `"para_chunks"`와 `"para_chunks_min_25"`가 모두 `["para", "chunks", ...]`라는 토큰으로 쪼개진다. 그 결과 나중에 `chunking_strategy == "para_chunks"`인 것만 찾으려고 필터를 걸었을 때 `"para_chunks_min_25"`까지 함께 딸려 나오는 문제가 발생한다. **`Tokenization.FIELD`**를 지정하면 문자열 전체를 쪼개지 않고 통째로 하나의 단일 토큰으로 취급하므로, 코드값이나 전략 이름처럼 정확히 일치하는 값만 필터링할 때 필수적으로 사용한다.
+컬렉션 설정에서 눈여겨볼 두 가지는 다음과 같다.
+1. **`source_properties`와 `vectorize_collection_name=False`**: 임베딩할 때 본문(`chunk`)뿐 아니라 상위 챕터 제목(`chapter_title`)과 파일명(`filename`)을 함께 묶어 문맥 정보를 보강한다. 반면 컬렉션 이름(`"chunking_example"`)은 내용과 무관한 기술 식별자이므로 벡터 계산에서 제외한다.
+2. **`tokenization=Tokenization.FIELD`**: 기본 단어 토큰화(`Tokenization.WORD`)는 밑줄(`_`)을 기준으로 `"para_chunks"`와 `"para_chunks_min_25"`를 모두 `["para", "chunks", ...]`로 쪼개 버린다. 그 결과 `"para_chunks"`만 골라내려 해도 `"para_chunks_min_25"`까지 같이 걸린다. **`Tokenization.FIELD`**를 지정하면 문자열 전체를 하나의 단일 토큰으로 취급해 전략 이름처럼 정확히 일치해야 하는 값을 안전하게 필터링한다.
 
-### `generate_uuid5` 기반 결정론적 배치 적재
+### 고유 해시 ID 기반 배치 적재와 오류 제어
 
-생성된 빈 컬렉션에 네 가지 전략으로 쪼갠 모든 청크 객체를 적재한다. 데이터를 넣을 때는 단건 호출 대신 `collection.batch.fixed_size` 컨텍스트 매니저를 사용한다.
+이제 네 전략의 청크들을 `collection.batch.fixed_size`로 적재한다.
 
 ```python
 if len(collection) == 0:
+    # 로컬 단일 Flask 서버로의 과대한 배치 타임아웃을 막기 위해 batch_size=1로 쪼개되 concurrent_requests=20으로 병렬 처리한다
     with collection.batch.fixed_size(batch_size=1, concurrent_requests=20) as batch:
         for chunking_strategy, chunk_objects in tqdm.tqdm(chunk_obj_sets.items()):
             for chunk_obj in chunk_objects:
-                # 검색 시 전략별로 필터링할 수 있도록 전략 이름 속성 추가
                 chunk_obj["chunking_strategy"] = chunking_strategy
                 batch.add_object(
                     properties=chunk_obj,
                     uuid=generate_uuid5(chunk_obj)
                 )
-                # 오류 누적 건수가 임계치를 넘으면 배치 적재 중단
                 if batch.number_errors > 10:
                     print("Batch import stopped due to excessive errors.")
                     break
@@ -375,11 +355,12 @@ if len(collection) == 0:
         print(f"Number of failed imports: {len(failed_objects)}")
 ```
 
-`batch.add_object`가 실행될 때마다 백그라운드에서는 로컬 Flask 서버를 호출해 텍스트를 768차원 벡터로 변환하고, 컬렉션 내부의 HNSW 다층 그래프 인덱스를 실시간으로 갱신한다. 이때 두 가지 실무 안전장치가 함께 쓰인다.
-- **`generate_uuid5(chunk_obj)`**: 무작위(Random) ID인 UUID4와 달리, UUID5는 입력된 객체(`chunk_obj`)의 내용을 해시(SHA-1)하여 항상 동일한 고유 식별자를 생성한다. 따라서 실수로 적재 셀을 두 번 실행하더라도 동일한 청크는 똑같은 UUID를 부여받아 중복 삽입되지 않고 덮어써진다.
-- **`batch.number_errors`와 `collection.batch.failed_objects`**: 이론 편 2장에서 살펴본 것처럼, 대량 적재 중 일부 문서에서 오류가 나더라도 전체 작업이 바로 멈추지 않고 `batch.number_errors`에 오류 횟수가 기록된다. 루프 안에서 오류 건수가 지정한 기준(예: 10건)을 넘으면 `break`로 멈출 수 있고, 블록이 끝난 뒤 `collection.batch.failed_objects`를 조회해 실패한 객체와 원인을 따로 확인할 수 있다.
+배치 적재 시 세 가지 안전장치가 동작한다.
+- **`batch_size=1, concurrent_requests=20`**: 로컬 Flask 추론 서버는 단일 스레드로 동작하므로 한 요청에 청크를 50개씩 묶어 보내면 직렬 인코딩 중에 HTTP 타임아웃이 나기 쉽다. 반대로 요청 단위를 `1`건으로 작게 쪼개되 동시 요청(`concurrent_requests=20`)을 열어 두면 타임아웃을 피하면서 처리 속도를 확보할 수 있다.
+- **`generate_uuid5(chunk_obj)`**: 무작위 ID(UUID4) 대신 객체 내용의 SHA-1 해시 기반 UUID5를 생성한다. 적재 스크립트를 두 번 실행해도 같은 청크가 중복 삽입되지 않고 덮어써진다.
+- **`batch.number_errors`와 `collection.batch.failed_objects`**: 일부 실패 건수가 기준(`10`건)을 넘으면 루프를 멈추고, 종료 후 `failed_objects`로 실패 원인을 점검한다.
 
-적재가 완료된 후 각 전략별로 몇 개의 청크가 저장되었는지 `Filter.by_property`와 `aggregate.over_all`로 확인한다.
+적재 후 전략별 청크 수를 집계해 확인한다.
 
 ```python
 print(f"Total count: {collection.aggregate.over_all().total_count}")
@@ -397,7 +378,7 @@ Object count for para_chunks: 400
 Object count for para_chunks_min_25: 80
 ```
 
-`Filter.by_property('chunking_strategy').equal(chunking_strategy)`는 SQL의 `WHERE chunking_strategy = '...'`와 동일한 조건 객체(`where_filter`)를 만든다. 전체 1,620개의 청크 중 25단어 고정 청크는 909개로 가장 잘게 쪼개졌고, 짧은 제목을 병합한 혼합 문단 청크(`para_chunks_min_25`)는 80개의 큼직한 청크로 구성된 것을 볼 수 있다.
+총 1,620개 청크 중 25단어 고정 청크는 909개로 가장 잘게 나뉘었고, 짧은 제목을 병합한 혼합 청크(`para_chunks_min_25`)는 80개의 큼직한 조각으로 정리되었다.
 
 ### 질문 성격에 따른 검색 비교와 청크 개수 보정
 
@@ -419,11 +400,11 @@ for chunking_strategy in chunk_obj_sets.keys():
         print(obj.properties["chunk"])
 ```
 
-두 가지 질문으로 실행 결과를 비교해 보면 청크 크기에 따른 차이가 나타난다.
-1. **포괄적인 질문 (`"history of git"`)**: 25단어 고정 청크(`fixed_size_25`)는 질문과 단어 유사도는 높지만 앞뒤 설명이 잘려 있어 Git의 탄생 배경을 이해하기 어렵다. 반면 최소 25단어를 보장한 문단 청크(`para_chunks_min_25`)는 리누스 토르발즈와 리눅스 커널 커뮤니티가 BitKeeper 사용을 중단하고 2005년에 Git을 개발하게 된 배경과 설계 목표 전체를 완결된 문맥으로 가져온다.
-2. **구체적인 단답형 질문 (`"how to add the url of a remote repository"`)**: 반대로 원격 저장소 URL 추가 명령어를 찾을 때는 `fixed_size_25`가 불필요한 부연 설명 없이 `git remote add <shortname> <url>` 구문이 들어 있는 핵심 구절만 정확히 짚어낸다.
+두 질문으로 검색 결과를 비교해 보면 청크 크기에 따른 차이가 분명하다.
+1. **포괄적 질문 (`"history of git"`)**: 25단어 고정 청크(`fixed_size_25`)는 앞뒤 맥락이 끊겨 Git 탄생 배경을 파악하기 어렵다. 반면 최소 25단어를 보장한 혼합 청크(`para_chunks_min_25`)는 리누스 토르발즈가 BitKeeper 사용을 중단하고 2005년에 Git을 개발하게 된 배경과 설계 목표를 한 번에 가져온다.
+2. **구체적인 명령어 질문 (`"how to add the url of a remote repository"`)**: 반대로 원격 저장소 URL 추가 명령어를 찾을 때는 `fixed_size_25`가 군더더기 없이 `git remote add <shortname> <url>` 구문 주변만 짚어낸다.
 
-그렇다면 이 검색 결과를 언어 모델(LLM)의 프롬프트에 넣어 답변을 생성할 때는 어떻게 해야 할까? 만약 모든 전략에서 똑같이 `limit = 2`개씩만 가져오면, 25단어 청크 전략은 총 50단어밖에 참고하지 못하고 100단어 청크 전략은 200단어를 참고하게 되어 공정한 비교가 되지 않는다. 따라서 **청크 크기가 작은 전략은 더 많은 개수를 가져오고, 청크 크기가 큰 전략은 더 적은 개수를 가져오도록 검색 개수(`n_chunks_by_strat`)를 보정**한다.
+그렇다면 LLM 프롬프트에 검색 결과를 넣어 답변을 생성할 때는 어떻게 해야 할까? 모든 전략에서 똑같이 `limit = 2`개씩만 가져오면 25단어 청크는 50단어, 100단어 청크는 200단어를 보게 되어 공정한 비교가 되지 않는다. 따라서 **청크 길이에 반비례해 검색 개수(`n_chunks_by_strat`)를 보정**한다.
 
 ```python
 PROMPT = (
@@ -431,12 +412,13 @@ PROMPT = (
     "please explain {search_string} in a few short points.\nContext: {context}"
 )
 
-# 청크 크기 차이를 보정하기 위한 전략별 검색 개수(Number of chunks by strategy) 설정
-n_chunks_by_strat = dict()
-n_chunks_by_strat["fixed_size_25"] = 8       # 짧은 청크는 8개 인출 (약 200단어)
-n_chunks_by_strat["para_chunks"] = 8
-n_chunks_by_strat["fixed_size_100"] = 2      # 긴 청크는 2개만 인출 (약 200단어)
-n_chunks_by_strat["para_chunks_min_25"] = 2
+# 청크 크기 차이를 보정하기 위한 전략별 검색 개수 설정
+n_chunks_by_strat = {
+    "fixed_size_25": 8,
+    "para_chunks": 8,
+    "fixed_size_100": 2,
+    "para_chunks_min_25": 2,
+}
 
 search_string = "history of git"
 
@@ -447,34 +429,44 @@ for chunking_strategy in chunk_obj_sets.keys():
         filters=where_filter,
         limit=n_chunks_by_strat[chunking_strategy]
     )
-    context_string = ""
-    for obj in response.objects:
-        context_string += obj.properties["chunk"] + "\n"
+    context_string = "\n".join(obj.properties["chunk"] for obj in response.objects)
 
     prompt = PROMPT.format(search_string=search_string, context=context_string)
+    # 4편과 동일하게 실습 래퍼 규약으로 role을 넘긴다 (표준 OpenAI Chat API 직접 호출 시에는 role="user" 사용)
     llm_res = generate_with_single_input(prompt, role="assistant")
     print(f"Chunking Strategy: {chunking_strategy}\nResponse:\n\t{llm_res['content']}\n")
 ```
 
-`n_chunks_by_strat`(Number of chunks by strategy) 딕셔너리를 통해 25단어 청크는 8개, 100단어 및 병합 문단 청크는 2개를 가져오도록 맞춰주면 LLM에 전달되는 총 컨텍스트 분량이 비슷해진다. 그럼에도 생성된 답변을 비교해 보면, 문장 중간이 잘린 조각 8개를 이어 붙인 `fixed_size_25`보다 문단의 논리적 완결성이 유지된 `para_chunks_min_25`가 훨씬 조리 있고 정확한 요약문을 생성한다.
+```text
+Chunking Strategy: fixed_size_25
+Response:
+	Git began in 2005 after the Linux kernel community ended its relationship with BitKeeper... (조각난 문맥으로 요약 일부 누락)
+
+Chunking Strategy: para_chunks_min_25
+Response:
+	- Developed in 2005 by Linus Torvalds and the Linux kernel community after BitKeeper's free license was revoked.
+	- Designed for speed, simple design, strong support for non-linear branching, and distributed architecture.
+```
+
+전달되는 총 단어 분량을 200단어 수준으로 맞추더라도, 문장 중간이 끊긴 조각 8개를 이어 붙인 `fixed_size_25`보다 문단 완결성을 지킨 `para_chunks_min_25`가 훨씬 조리 있는 요약문을 만든다.
 
 ---
 
-## 4. 메타데이터 필터와 기본 검색
+## 4. 필터와 기본 검색 구현
 
 ### BBC 뉴스 컬렉션 구조와 768차원 벡터 확인
 
-앞선 1\~3장에서는 원본 문서를 직접 청킹하여 Weaviate 컬렉션에 적재하는 과정을 살펴보았다. 이제 4\~6장에서는 이미 청킹과 임베딩 적재가 완료된 대규모 뉴스 데이터셋인 **BBC News 컬렉션(`bbc_collection`)**을 불러와, 그 위에서 동작하는 다섯 가지 핵심 검색 함수와 최종 RAG 파이프라인을 차례대로 구축한다.
-
-먼저 로컬 Weaviate 서버에 연결해 원본 BBC 뉴스 데이터(`bbc_data.joblib`)와 `bbc_collection`에 적재된 단일 청크 객체의 구조를 확인한다.
+앞선 1\~3장에서는 임베디드 Weaviate 클라이언트(`connect_to_embedded`)를 열어 직접 청킹과 적재를 수행했다. 4\~6장에서는 먼저 임베디드 연결을 닫는다(`client.close()`). 그다음 이미 청킹과 임베딩 적재가 끝난 **BBC News 컬렉션(`bbc_collection`)**이 떠 있는 로컬 Weaviate 서버(포트 `8079`, gRPC `50050`)에 새로 연결한다.
 
 ```python
+# 1. 이전 임베디드 클라이언트 리소스 해제 후 로컬 Weaviate 서버(8079)로 전환
+client.close()
 client = weaviate.connect_to_local(port=8079, grpc_port=50050)
 collection = client.collections.get("bbc_collection")
 
 print(f"컬렉션 내 전체 청크 수: {len(collection)}")
 
-# 벡터를 포함하여 첫 번째 청크 객체 1건 조회
+# 2. 벡터를 포함해 첫 번째 청크 객체 1건 조회 (단일 속성 딕셔너리 전달)
 obj = collection.query.fetch_objects(limit=1, include_vector=True).objects[0]
 print_object_properties(obj.properties)
 print("Vector (앞 5개 원소):", obj.vector["main_vector"][0:5])
@@ -590,14 +582,12 @@ def bm25_retrieve(
 
 ```python
 print("=== 1. Semantic Search 결과 ===")
-print_object_properties(
-    semantic_search_retrieve("Tell me about the last Taylor Swift show", collection, top_k=2)
-)
+for item in semantic_search_retrieve("Tell me about the last Taylor Swift show", collection, top_k=2):
+    print_object_properties(item)
 
 print("=== 2. BM25 Search 결과 ===")
-print_object_properties(
-    bm25_retrieve("Tell me about the last Taylor Swift show", collection, top_k=2)
-)
+for item in bm25_retrieve("Tell me about the last Taylor Swift show", collection, top_k=2):
+    print_object_properties(item)
 ```
 
 ```text
@@ -612,15 +602,15 @@ pubDate: 2024-02-05 23:27:08+00:00
 title: Killer Mike dismisses arrest at Grammys as 'speed bump'
 ```
 
-두 검색의 결과가 뚜렷하게 다르다. **시맨틱 검색(`near_text`)**은 질문의 전체 의미를 파악해 테일러 스위프트가 웸블리 스타디움에서 유럽 투어 마지막 공연을 마쳤다는 정확한 기사 청크를 찾아왔다. 반면 **BM25 검색(`bm25`)**은 질문에 들어 있는 일반 단어들(`"Tell"`, `"me"`, `"about"`, `"last"`, `"show"`)이 많이 등장한다는 이유만으로 테일러 스위프트와 무관한 래퍼 킬러 마이크(Killer Mike)의 그래미 수상 소감 기사를 1위로 가져왔다. 일상적인 대화형 질문에서는 단순 키워드 매칭만 쓰면 이처럼 질문 의도와 관련 없는 문서가 상위에 올라올 수 있다.
+두 검색 결과는 뚜렷하게 갈린다. **시맨틱 검색(`near_text`)**은 질문의 전체 맥락을 파악해 테일러 스위프트가 웸블리 스타디움에서 유럽 투어 마지막 공연을 마친 정확한 기사 청크를 찾아왔다. 반면 **BM25 검색(`bm25`)**은 질문 속 일반 단어(`"Tell"`, `"me"`, `"about"`, `"last"`, `"show"`)가 많이 나온 기사를 우선한다. 이 때문에 테일러 스위프트와 무관한 래퍼 킬러 마이크의 그래미 수상 소감 기사가 1위로 올라왔다. 일상 대화형 질문에 단순 키워드 매칭만 쓰면 이처럼 질문 의도와 무관한 문서가 최상단에 놓이기 쉽다.
 
 ---
 
 ## 5. 하이브리드 검색과 리랭킹
 
-### RRF 기반 하이브리드 검색 구현 (`hybrid_retrieve`)
+### 역순위 융합(RRF) 기반 하이브리드 검색 구현
 
-키워드 검색의 정확한 고유명사 매칭 능력과 시맨틱 검색의 문맥 파악 능력을 결합하기 위해, Weaviate의 `collection.query.hybrid` 메서드를 사용하는 `hybrid_retrieve` 함수를 구현한다.
+키워드 검색의 정확한 고유명사 매칭과 시맨틱 검색의 문맥 파악 능력을 결합하기 위해 Weaviate의 `collection.query.hybrid` 메서드를 감싼 `hybrid_retrieve` 함수를 구현한다.
 
 ```python
 def hybrid_retrieve(
@@ -637,20 +627,25 @@ def hybrid_retrieve(
     )
     response_objects = [x.properties for x in response.objects]
     return response_objects
+
+hybrid_results = hybrid_retrieve("Tell me about the last Taylor Swift show", collection, alpha=0.5, top_k=2)
+for item in hybrid_results:
+    print(item["title"])
+# 출력 예시:
+# 'I've never had it this good' - Taylor Swift thanks fans after new Wembley record
+# Killer Mike dismisses arrest at Grammys as 'speed bump'
 ```
 
-`collection.query.hybrid`가 호출되면 Weaviate는 백그라운드에서 BM25 검색과 시맨틱 벡터 검색을 동시에 수행한 뒤, 상호 순위 조합(Reciprocal Rank Fusion, RRF) 방식으로 두 순위표를 병합한다. 이때 **`alpha`** 파라미터가 두 검색의 가중치 균형을 결정한다.
-- `alpha = 0.0`: $100\%$ 순수 BM25 키워드 검색만 사용한다.
-- `alpha = 0.5` (기본값): 키워드 검색과 시맨틱 벡터 검색을 $50:50$ 동일 비중으로 결합한다.
-- `alpha = 1.0`: $100\%$ 순수 시맨틱 벡터 검색만 사용한다.
-
-앞서 테스트한 테일러 스위프트 질문을 `alpha=0.5`, `top_k=2`로 실행하면, BM25 1위였던 킬러 마이크 기사와 시맨틱 검색 1위였던 테일러 스위프트 웸블리 공연 기사가 나란히 상위 2개 결과로 통합되어 반환된다.
+`collection.query.hybrid`를 호출하면 Weaviate는 내부에서 BM25 검색과 시맨틱 벡터 검색을 함께 수행한 뒤 **역순위 융합(Reciprocal Rank Fusion, RRF)** 방식으로 두 순위표를 병합한다. 이때 **`alpha`** 파라미터가 두 검색의 가중치 균형을 조절한다.
+- `alpha = 0.0`: $100\%$ 순수 BM25 키워드 검색만 사용
+- `alpha = 0.5` (기본값): 키워드 검색과 시맨틱 벡터 검색을 $50:50$ 동일 비중으로 결합
+- `alpha = 1.0`: $100\%$ 순수 시맨틱 벡터 검색만 사용
 
 ### 크로스 인코더 리랭킹 결합 (`semantic_search_with_reranking`)
 
-이제 1차 시맨틱 검색이 가져온 후보들을 크로스 인코더 모델(`BAAI/bge-reranker-base`)로 다시 채점하여 순위를 바로잡는 `semantic_search_with_reranking` 함수를 구현한다.
+이제 1차 시맨틱 검색이 가져온 후보들을 크로스 인코더 모델(`BAAI/bge-reranker-base`)로 재채점하는 `semantic_search_with_reranking` 함수를 구현한다.
 
-이 함수는 1차 검색용 질문(`query`)과 별개로 리랭킹 전용 질문(`rerank_query`)을 따로 받을 수 있으며, 문서의 어느 속성(`rerank_property`, 예: 본문 `'chunk'` 또는 제목 `'title'`)을 기준으로 재채점할지 지정할 수 있도록 설계한다.
+이 함수는 1차 검색용 질문(`query`)과 별개로 리랭킹 전용 질문(`rerank_query`)을 따로 받을 수 있으며, 문서의 어느 속성(`rerank_property`, 예: `'chunk'` 또는 `'title'`)을 기준으로 채점할지 지정할 수 있다.
 
 ```python
 def semantic_search_with_reranking(
@@ -660,14 +655,14 @@ def semantic_search_with_reranking(
     rerank_query: str = None,
     top_k: int = 5
 ) -> list:
-    # 1. 리랭킹 전용 질문이 따로 주어지지 않으면 원래 검색 질문(query)을 그대로 사용
+    # 1. 리랭킹 전용 질문이 없으면 원래 검색 질문(query)을 그대로 사용
     if rerank_query is None:
         rerank_query = query
 
     # 2. 재채점할 대상 속성(prop)과 기준 질문(query)을 담아 Rerank 설정 객체 생성
     reranker = Rerank(prop=rerank_property, query=rerank_query)
 
-    # 3. 1차 near_text 검색에 rerank 파라미터로 Rerank 객체를 주입하여 결과 재정렬
+    # 3. 1차 near_text 검색에 rerank 파라미터를 주입해 결과 재정렬
     response = collection.query.near_text(
         query=query,
         limit=top_k,
@@ -678,11 +673,9 @@ def semantic_search_with_reranking(
     return response_objects
 ```
 
-코드의 동작 흐름을 두 단계로 나누어 살펴본다.
-1. **`Rerank` 객체 생성**: `weaviate.classes.query`에서 불러온 `Rerank` 클래스에 두 개의 인자를 넘긴다. `prop=rerank_property`는 후보 객체의 여러 속성 중 어느 텍스트 칸(예: `'chunk'`)을 읽고 점수를 매길지 지정하고, `query=rerank_query`는 크로스 인코더에서 문서 앞에 이어 붙일 기준 질문을 지정한다.
-2. **`near_text`와 리랭커 연동**: `collection.query.near_text` 호출 시 `rerank=reranker`를 함께 전달한다. 그러면 Weaviate는 먼저 HNSW 인덱스로 후보 청크들을 찾은 뒤, 각 후보의 `rerank_property` 텍스트와 `rerank_query`를 묶어 1장에서 구동해 둔 로컬 Flask 서버의 `/rerank` 엔드포인트(`FlagReranker`)로 전송한다. 최종적으로 크로스 인코더가 매긴 정밀도 점수 순서대로 `response.objects`가 재정렬되어 반환된다.
+실행은 두 단계로 이루어진다. 먼저 `Rerank(prop=rerank_property, query=rerank_query)`로 재채점 대상 칸과 기준 질문을 정의한다. 이어 `collection.query.near_text(..., rerank=reranker)`를 호출하면 Weaviate가 HNSW 인덱스로 후보를 추린 뒤 1장에서 띄운 로컬 Flask 서버 `/rerank` 엔드포인트로 보내 관련도 점수 순으로 다시 정렬해 돌려준다.
 
-구현한 리랭킹 함수로 라틴 아메리카의 갈등 상황을 묻는 질문을 실행해 본다.
+라틴 아메리카의 외교 갈등 상황을 묻는 질문으로 리랭킹 결과를 확인한다.
 
 ```python
 query = "Tell me about the conflicts in Latin America"
@@ -692,7 +685,8 @@ results = semantic_search_with_reranking(
     top_k=2,
     rerank_property="chunk"
 )
-print_object_properties(results)
+for item in results:
+    print_object_properties(item)
 ```
 
 ```text
@@ -707,15 +701,15 @@ chunk_index: 4
 title: Protests across Venezuela as election dispute goes on
 ```
 
-`'chunk'` 본문을 기준으로 크로스 인코더 리랭킹을 거친 결과, 아르헨티나와 스페인 간의 외교 갈등 기사 및 베네수엘라 대선 불복 시위 기사가 최상단으로 정확히 정렬되어 반환된다.
+`'chunk'` 본문을 기준으로 크로스 인코더 리랭킹을 거친 결과, 스페인-아르헨티나 외교 갈등 기사와 베네수엘라 대선 시위 기사가 최상단으로 정렬되어 나온다.
 
 ---
 
-## 6. 프롬프트 조립과 RAG 완성
+## 6. 프롬프트와 RAG 완성
 
-### 검색 함수를 교체할 수 있는 프롬프트 생성기 (`generate_final_prompt`)
+### 검색 함수를 교체할 수 있는 프롬프트 생성기
 
-지금까지 만든 네 가지 검색기(`semantic_search_retrieve`, `bm25_retrieve`, `hybrid_retrieve`, `semantic_search_with_reranking`)는 모두 동일한 형태의 속성 딕셔너리 리스트를 반환한다. 따라서 파이썬에서 함수를 인자(`retrieve_function: callable`)로 전달받는 구조를 활용하면, 단 하나의 프롬프트 생성 함수로 모든 검색 방식을 자유롭게 교체하며 실험할 수 있다.
+지금까지 만든 네 가지 검색기(`semantic_search_retrieve`, `bm25_retrieve`, `hybrid_retrieve`, `semantic_search_with_reranking`)는 모두 동일한 속성 딕셔너리 리스트를 반환한다. 따라서 검색 함수를 인자(`retrieve_function: callable`)로 넘기면 하나의 프롬프트 생성기(`generate_final_prompt`)로 모든 검색 방식을 교체하며 실험할 수 있다.
 
 ```python
 def generate_final_prompt(
@@ -727,11 +721,11 @@ def generate_final_prompt(
     use_rerank: bool = False,
     use_rag: bool = True
 ) -> str:
-    # 1. RAG를 사용하지 않는 경우(Baseline 비교용) 원본 질문만 그대로 반환
+    # 1. RAG 비활성화 모드(Baseline 비교용)면 원본 질문만 반환
     if not use_rag:
         return query
 
-    # 2. 리랭킹 사용 여부에 따라 검색 함수에 전달할 인자 분기
+    # 2. 리랭킹 옵션 활성화 여부에 따라 검색 함수 인자 분기
     if use_rerank:
         if rerank_property is None:
             raise ValueError("rerank_property must be set if use_rerank = True")
@@ -749,7 +743,7 @@ def generate_final_prompt(
             collection=collection
         )
 
-    # 3. 검색된 청크들의 제목, 본문 조각, 발행일, 출처 링크를 문자열로 포맷팅
+    # 3. 청크 본문과 함께 제목, 발행 시각, 출처 URL 메타데이터까지 문자열로 포맷팅
     formatted_data = ""
     for document in top_k_documents:
         document_layout = (
@@ -758,7 +752,7 @@ def generate_final_prompt(
         )
         formatted_data += document_layout + "\n"
 
-    # 4. 시스템 지시문과 사용자 질문, 검색된 2024년 뉴스 맥락을 결합하여 최종 프롬프트 조립
+    # 4. 지시문, 질문, 검색된 2024년 뉴스 맥락을 결합해 최종 프롬프트 조립
     prompt = (
         f"Answer the user query below. There will be provided additional information for you to compose your answer. "
         f"The relevant information provided is from 2024 and it should be added as your overall knowledge to answer the query, "
@@ -771,11 +765,11 @@ def generate_final_prompt(
     return prompt
 ```
 
-이 함수는 `use_rerank=True`일 때 `rerank_property`가 누락되었는지 먼저 검사(`if rerank_property is None: raise ValueError(...)`)하여 잘못된 호출을 방어한다. 이어서 검색된 각 청크 객체에서 청크 본문(`chunk`)뿐만 아니라 상속받은 원본 기사 제목(`title`), 발행 시각(`pubDate`), 원본 기사 URL(`link`)을 함께 묶어 프롬프트 하단에 주입한다. 이렇게 메타데이터를 프롬프트에 함께 넣어주어야 언어 모델이 답변을 작성할 때 사건의 시점과 근거 링크를 정확히 인용할 수 있다.
+`generate_final_prompt`는 `use_rerank=True`일 때 `rerank_property`가 빠졌는지 검사해 잘못된 호출을 막는다. 이어 청크 본문(`chunk`)뿐 아니라 원본 제목(`title`), 발행 시각(`pubDate`), 기사 URL(`link`)을 함께 묶어 모델이 시점과 근거 링크를 인용할 수 있게 만든다.
 
 ### LLM 호출 연동과 최종 RAG 응답 검증
 
-마지막으로 `generate_final_prompt`가 조립한 프롬프트를 받아 언어 모델을 호출하는 `llm_call` 함수를 완성하고, 2024년 미국과 브라질의 외교 관계 및 출처 링크를 요구하는 질문을 실행한다.
+마지막으로 `generate_final_prompt` 결과를 LLM에 전달하는 `llm_call`을 완성하고, 2024년 미국과 브라질의 외교 관계 및 출처 링크를 묻는 질문을 실행한다.
 
 ```python
 def llm_call(
@@ -800,23 +794,25 @@ def llm_call(
 
     # 2. LLM 호출 및 응답 텍스트 추출
     generated_response = generate_with_single_input(PROMPT)
-    generated_message = generated_response["content"]
-
-    return generated_message
+    return generated_response["content"]
 
 
-# 하이브리드 검색기 기반 RAG 호출 테스트
 query = (
     "Tell me about United States and Brazil's relationship over the course of 2024. "
     "Provide links for the resources you use in the answer."
 )
 print(llm_call(query=query, top_k=5, retrieve_function=hybrid_retrieve))
 
-# 작업 종료 후 Weaviate 클라이언트 리소스 해제
+# 작업 종료 후 로컬 Weaviate 연결 해제
 client.close()
 ```
 
-`llm_call`을 실행하면 하이브리드 검색기가 2024년 BBC 뉴스 컬렉션에서 미국과 브라질 정상회담, G20 외교 현안, 남미 정세 관련 청크 5건을 찾아 프롬프트에 주입한다. 언어 모델은 이 최신 맥락을 바탕으로 2024년 양국 관계의 주요 현안을 요약하고, 각 문단 끝에 함께 전달받은 `https://www.bbc.com/news/...` 출처 링크를 첨부하여 응답을 완성한다. 모든 작업이 끝난 뒤에는 `client.close()`를 호출해 임베디드 및 로컬 Weaviate 연결과 점유 포트를 정상적으로 해제한다.
+```text
+In 2024, the United States and Brazil engaged closely at multilateral summits including the G20 meeting in Rio de Janeiro, balancing diplomatic cooperation on climate and economic initiatives alongside regional debates over Western Hemisphere affairs.
+- Source: https://www.bbc.com/news/world-latin-america-...
+```
+
+`llm_call`을 실행하면 하이브리드 검색기가 2024년 BBC 뉴스 컬렉션에서 미국과 브라질 관련 청크 5건을 찾아 프롬프트에 주입한다. 언어 모델은 이 맥락으로 2024년 양국 관계 현안을 요약하고 전달받은 `https://www.bbc.com/news/...` 링크를 함께 출력한다. 모든 작업이 끝난 뒤에는 `client.close()`로 연결과 점유 포트를 정상 해제한다.
 
 ---
 
