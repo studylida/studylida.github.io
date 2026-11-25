@@ -217,7 +217,7 @@ class AssertionRoles(BaseModel):
 1. **`Evidence`**: 원문 인용 글자(`quote`)와 그 글자가 위치한 시작과 끝 오프셋(`start`, `end`)을 담는다. 모델이 인용한 근거 텍스트를 추적하는 최소 단위다.
 2. **`RoleMention`**: 어느 문장에서 인용했는지를 나타내는 문장 ID(`unit_id`), 인용 텍스트 객체(`evidence`), 그리고 이 표기가 가리키는 정규 개체 후보 식별자(`candidate_ref`)를 묶는다. "이 회사", "최태원 회장" 같은 원문 표현이 실제 어떤 정규 엔티티(`c0`, `c1`)를 가리키는지 연결하는 참조 모델이다.
 3. **`RoleSlot`**: 슬롯 상태(`status`)와 멘션 목록(`mentions`)을 담는다. 문장에 정보가 명확히 적혀 있으면 `explicit`, 언급이 없으면 `not_stated`(기본값), 모호하면 `ambiguous`로 제한해 오타가 섞이는 일을 막는다.
-4. **`AssertionRoles`**: 기사 문장 하나에서 추출한 완성된 주장 단위다. 행동(`action`), 사실/계획 여부(`modality`), 긍정/부정 여부(`polarity`)와 함께 행위자(`actors`), 협력자(`partners`), 수혜자(`recipients`), 대상물(`objects`), 적용처(`applications`) 등 10가지 역할 슬롯을 멤버로 가진다.
+4. **`AssertionRoles`**: 기사 문장 하나에서 추출한 완성된 주장 단위다. 행동(`action`), 사실/계획 여부(`modality`), 긍정/부정 여부(`polarity`)를 기본 속성으로 가진다. 여기에 행위자(`actors`), 협력자(`partners`), 수혜자(`recipients`), 대상물(`objects`), 적용처(`applications`) 등 10가지 역할 슬롯을 멤버로 둔다.
 
 여기서 `mentions: list[RoleMention] = Field(default_factory=list)`를 사용한 이유는 파이썬의 가변 객체 참조 공유 문제를 막기 위해서다. 클래스 속성 기본값으로 `[]`를 직접 쓰면 모든 슬롯 인스턴스가 같은 메모리 주소를 공유해 값이 섞이는 버그가 생긴다. `default_factory=list`를 지정해야 인스턴스마다 새 리스트가 독립 할당된다.
 
@@ -231,14 +231,14 @@ class AssertionRoles(BaseModel):
 
 이 검증 함수는 여러 단계의 유효성 검사가 얽혀 있어 전체 코드를 한 번에 읽으면 흐름을 놓치기 쉽다. 따라서 가장 단순한 기본 검증부터 시작해 단계별로 조건을 쌓아 올린다.
 
-### 1단계: 주장 실존 여부 검증
+### 4.1 주장 실존 여부 검증
 
-가장 먼저 각 간선 후보가 가리키는 주장이 원천 표에 실제로 있는지 확인한다.
+가장 먼저 각 간선 후보가 가리키는 주장이 원천 표(`table_assertions`)에 실제로 있는지 확인한다.
 
 ```python
-def qualify_candidate_rows_basic(rows, table):
+def qualify_candidate_rows_basic(rows, table_assertions):
     # 매번 리스트를 선형 탐색하지 않도록 딕셔너리로 O(1) 룩업 맵 생성
-    assertions = {item.id: item for item in table.assertions}
+    assertions = {item.id: item for item in table_assertions}
     for row in rows:
         assertion = assertions.get(row.assertion_id or "")
         if assertion is None:
@@ -247,7 +247,7 @@ def qualify_candidate_rows_basic(rows, table):
 
 매번 리스트를 선형 탐색(`O(N)`)하지 않도록 주장 ID를 키로 하는 `O(1)` 룩업 딕셔너리를 먼저 만든다. 수많은 간선 행(`rows`)이 참조하는 `assertion_id`가 실제 존재하는지 확인하는 작업이 검증의 출발점이다.
 
-### 2단계: 튜플 키와 setdefault를 통한 모순 검사
+### 4.2 튜플 키와 setdefault를 통한 모순 검사
 
 주장 매핑 이후에는 동일한 주장 ID에 서로 모순된 진술이나 적용 범위(스코프)가 유입되는 것을 방어해야 한다. 이때 파이썬의 `dict.setdefault()`와 튜플 복합 키를 활용하면 간결하게 해결할 수 있다.
 
@@ -261,7 +261,7 @@ if statements.setdefault(assertion.id, content_key) != content_key:
 
 따라서 동일한 주장 ID(`assertion.id`)를 바라보는 여러 관계 행이 서로 다른 원문 서술이나 스코프를 제시하면, 기존에 등록된 값과 현재의 `content_key`가 어긋난다. 이를 통해 한 주장에 서로 모순된 진술이나 범위가 들어오는 것을 `O(1)` 속도로 잡아낸다.
 
-### 3단계: 세부 검증 조건을 추가한 관계 필터
+### 4.3 세부 검증 조건을 추가한 관계 필터
 
 앞선 실존 검사와 서술/스코프 일관성 검사를 합치고, 출발지/도착지 슬롯 일치와 셀프 루프 방지까지 반영한 완성 코드는 다음과 같다. (`metric` 유형이 아닌 행에서는 `subject_ref`를 `None`으로 비워 지표 주체 참조가 섞이지 않게 정리한다.)
 
@@ -376,7 +376,7 @@ def merge_candidate_bundles(bundles: list[list[CandidateRow]]) -> list[Candidate
 
 앞선 단계에서 추출한 것은 문장 속 멘션들과 관계 행들이었을 뿐, 아직 우리 시스템에는 **'이 그래프에 최종적으로 존재하는 공식 노드 목록'**이 없다. 
 
-노드 카탈로그 확정 단계(`catalog_nodes`)에서는 모델이 제안한 개체 후보 목록(`selected_items`)을 넘겨받아 중복을 없애고, 실제 원문 문장의 형태소 토큰 구간을 슬라이싱해 공식 노드 목록(`CandidateNode`)을 확정한다.
+노드 카탈로그 확정 단계(`catalog_nodes`)에서는 모델이 제안한 개체 후보 목록(`selected_items`)을 넘겨받아 토큰 좌표 범위를 검증한다. 이어서 중복 참조된 증거 문장 ID를 정리한 뒤, 실제 원문 문장의 형태소 토큰 구간을 슬라이싱해 공식 노드 목록(`CandidateNode`)을 확정한다.
 
 여기서 입력 인자인 `tokens_by_unit`은 1단계 전처리에서 만들어 둔 문장별 형태소 토큰 딕셔너리다. 예를 들어 `{"u0": ["SK", "하이닉스", "는", "엔비디아", "와", ...]}`처럼 문장 ID를 키로 삼고 0부터 번호가 매겨진 형태소 토큰 배열을 값으로 갖는다. 모델은 이 배열의 시작 토큰 인덱스(`first_span_id`)와 끝 토큰 인덱스(`last_span_id`)를 반환한다.
 
@@ -494,13 +494,13 @@ def validate_consistency_report(
 - `ConsistencyIssue`: 문제가 발견된 노드 ID 목록(`node_ids`), 관계 ID 목록(`row_ids`), 설명 메시지(`message`)를 담는다.
 - `ConsistencyReport`: 검사한 문장 ID 목록(`checked_unit_ids`), 노드 검사 결과 목록(`nodes`), 발견된 이슈 목록(`issues`)을 담는다.
 
-보고서 무결성 검사는 세 단계의 집합 연산으로 진행한다:
+보고서 무결성 검사는 세 항목을 순서대로 확인하는 집합 연산으로 진행한다:
 
-1단계는 `set(report.checked_unit_ids) != all_units.keys()` 비교다. 2차 검증 모델이 점검했다고 보고한 문장 ID 집합과 전체 원문 문장 ID 집합이 일치하는지 확인해 누락 검사를 막는다.
+먼저 `set(report.checked_unit_ids) != all_units.keys()` 비교로 누락 검사를 막는다. 2차 검증 모델이 점검했다고 보고한 문장 ID 집합과 전체 원문 문장 ID 집합이 일치하는지 확인한다.
 
-2단계는 `{node.id for node in bundle_nodes}`와 `{check.node_id for check in report.nodes}`를 비교하여, 이번 번들에 포함된 모든 노드를 빠짐없이 전수 점검했는지 확인한다.
+다음으로 `{node.id for node in bundle_nodes}`와 `{check.node_id for check in report.nodes}`를 비교하여, 이번 번들에 포함된 모든 노드를 빠짐없이 전수 점검했는지 확인한다.
 
-3단계는 `for issue in report.issues:`를 돌며 발견된 문제점 속의 식별자를 검사한다. 여기서 핵심은 **파이썬의 부분집합 연산자(`<=`)를 활용한 가짜 식별자 차단**이다. `not set(issue.node_ids) <= existing_node_ids`와 `not set(issue.row_ids) <= existing_row_ids`로 보고된 문제 ID들이 실제 번들 집합의 부분집합인지 검증한다.
+마지막으로 `for issue in report.issues:`를 돌며 발견된 문제점 속의 식별자를 검사한다. 보고된 `issue.node_ids`와 `issue.row_ids`가 실제 번들 집합의 부분집합인지 파이썬 부분집합 연산자(`<=`)로 검증해 가짜 식별자를 차단한다.
 
 예를 들어 번들에 노드가 `c0`, `c1`, `c2` 세 개뿐인데 검증 모델이 "c99 노드가 이상합니다"라고 적어낼 수 있다. 이때 `{'c99'}`는 기존 노드 집합의 부분집합이 아니므로 즉시 예외가 발생하며 가짜 지목 보고서가 차단된다.
 
@@ -586,11 +586,11 @@ def save_canonical_graph(session, workspace_id: int, nodes: list[CandidateNode],
 
 최종 DB 저장(`save_canonical_graph`)을 시작할 때는 임시 문자열 ID를 DB 정수 기본키로 바꿀 매핑 딕셔너리(`node_id_map`)부터 초기화한다.
 
-1단계 노드 저장 루프에서는 각 노드에 대해 `NodeRecord(workspace_id, name, classification)` 인스턴스를 생성하여 `session.add(saved_node)`로 세션에 등록한다. 그리고 그 즉시 `session.flush()`를 호출한다. 임시 ID를 그대로 쓰지 않고 정수 PK로 바꾸는 이유는 데이터베이스의 인덱싱 성능과 외래키(FK) 제약조건 때문이다. 문자열 ID(`p0:r0`)는 길이가 가변적이고 조인할 때 인덱스 성능이 떨어진다. 반면 정수 기본키(Integer PK)는 메모리 효율이 좋고 외래키 결합이 매우 빠르다.
+첫 번째 노드 저장 루프에서는 각 노드에 대해 `NodeRecord(workspace_id, name, classification)` 인스턴스를 생성하여 `session.add(saved_node)`로 세션에 등록한다. 그리고 그 즉시 `session.flush()`를 호출한다. 임시 ID를 그대로 쓰지 않고 정수 PK로 바꾸는 이유는 데이터베이스의 인덱싱 성능과 외래키(FK) 제약조건 때문이다. 문자열 ID(`p0:r0`)는 길이가 가변적이고 조인할 때 인덱스 성능이 떨어진다. 반면 정수 기본키(Integer PK)는 메모리 효율이 좋고 외래키 결합이 매우 빠르다.
 
 `session.flush()`를 쓰는 이유는 트랜잭션 롤백의 안전성 때문이다. 노드를 넣을 때마다 매번 `commit()`을 해버리면, 중간에 간선을 연결하다 에러가 났을 때 이미 저장된 노드들만 DB에 남아 되돌리기가 까다롭다. 반면 `session.flush()`는 트랜잭션을 미확정 상태로 열어 둔 채 DB 시퀀스에서 정수 PK(`saved_node.id`)만 미리 발급받아 매핑 딕셔너리에 기록한다.
 
-2단계 간선 저장 루프에서는 `for row in rows:`를 돌며, 관계 타입이 아니거나 검토 노트가 붙은 결격 행은 정규 간선이 아니므로 `continue`로 건너뛴다. 그 다음 출발지와 도착지의 임시 ID로 맵에서 정수 PK를 조회한다: `node_id_map.get(row.source_ref)`, `node_id_map.get(row.target_ref)`. 만약 참조하는 노드의 PK가 없다면 `fail("NODE_PK_NOT_FOUND")`를 발생시킨다. 조회한 정수 PK를 `source_node_id`, `target_node_id`에 주입하여 `EdgeRecord`를 생성하고 세션에 추가한다.
+두 번째 간선 저장 루프에서는 `for row in rows:`를 돌며, 관계 타입이 아니거나 검토 노트가 붙은 결격 행은 정규 간선이 아니므로 `continue`로 건너뛴다. 그 다음 출발지와 도착지의 임시 ID로 맵에서 정수 PK를 조회한다: `node_id_map.get(row.source_ref)`, `node_id_map.get(row.target_ref)`. 만약 참조하는 노드의 PK가 없다면 `fail("NODE_PK_NOT_FOUND")`를 발생시킨다. 조회한 정수 PK를 `source_node_id`, `target_node_id`에 주입하여 `EdgeRecord`를 생성하고 세션에 추가한다.
 
 마지막으로 모든 노드와 간선이 외래키 오류 없이 적재되었을 때 `session.commit()`을 단 한 번 호출한다. 도중에 문제가 생겨도 부분 저장 없이 전체를 롤백할 수 있다.
 

@@ -173,7 +173,7 @@ def cosine_similarity(v1, array_of_vectors):
     return np.array(similarities)
 ```
 
-이 함수에서 두 벡터의 크기 곱으로 내적을 나누면 문서 길이 차이를 없앤 순수 방향 유사도(`-1.0` ~ `1.0`)를 얻을 수 있다. 단일 벡터 1개를 넣었더라도 `array([0.724])` 형태의 NumPy 1차원 배열을 반환하므로, 값 하나만 꺼낼 때는 `[0]`을 붙인다.
+이 함수에서 두 벡터의 크기 곱으로 내적을 나누면 문서 길이 차이를 없앤 순수 방향 유사도($-1.0 \sim 1.0$)를 얻을 수 있다. 단일 벡터 1개를 넣었더라도 `array([0.724])` 형태의 NumPy 1차원 배열을 반환하므로, 값 하나만 꺼낼 때는 `[0]`을 붙인다.
 
 ### `semantic_search_retrieve` 구현과 부호 반전 정렬
 
@@ -229,6 +229,7 @@ def reciprocal_rank_fusion(list1: list[int], list2: list[int], top_k: int = 5, K
     for lst in [list1, list2]:
         # 1. 검색 순위는 1등부터 시작해야 수식이 성립하므로 enumerate(..., start=1) 사용
         for rank, item in enumerate(lst, start=1):
+            # 처음 등장한 문서 번호는 0점으로 초기화한 뒤 순위 점수를 누적한다
             if item not in rrf_scores:
                 rrf_scores[item] = 0
             # 2. 각 문서에 1 / (rank + K) 역순위 점수를 누적 (양쪽 리스트에 모두 있으면 합산됨)
@@ -257,12 +258,23 @@ print("RRF Top-5 Indices:", rrf_indices)
 이제 세 검색 함수(`bm25_retrieve`, `semantic_search_retrieve`, `reciprocal_rank_fusion`)를 인자로 받아 증강 프롬프트를 완성하는 `generate_final_prompt` 함수를 조립한다.
 
 ```python
-def generate_final_prompt(query: str, top_k: int, retrieve_function: callable = None, use_rag: bool = True) -> str:
+from typing import Callable
+
+def generate_final_prompt(
+    query: str,
+    top_k: int,
+    retrieve_function: Callable | None = None,
+    use_rag: bool = True,
+) -> str:
     """선택한 검색기로 상위 K개 뉴스를 조회한 뒤 질문과 합쳐 증강 프롬프트를 생성한다."""
     prompt = query
     # 1. RAG 비활성화 모드(use_rag=False)면 검색 없이 원본 질문만 반환
     if not use_rag:
         return prompt
+
+    # 검색기 인자가 비어 있으면 기본 하이브리드 RRF 병합 함수를 사용해 AttributeError를 막는다
+    if retrieve_function is None:
+        retrieve_function = reciprocal_rank_fusion
 
     # 2. 넘겨받은 검색 함수 이름(__name__)에 따라 하이브리드 RRF 분기 또는 단일 검색기 실행
     if retrieve_function.__name__ == 'reciprocal_rank_fusion':
@@ -294,7 +306,7 @@ def generate_final_prompt(query: str, top_k: int, retrieve_function: callable = 
     return prompt
 ```
 
-이 함수는 파이썬에서 함수 객체 자체를 인자(`retrieve_function: callable`)로 받고 `.__name__` 속성으로 RRF 병합 여부를 분기한다. 추출한 기사 5건은 각각 제목, 요약, 발행일, URL 문자열로 정리한 뒤 `"\n".join(...)`으로 묶어 질문 아래에 붙인다.
+이 함수는 파이썬에서 함수 객체 자체를 인자(`retrieve_function: Callable`)로 받고 `.__name__` 속성으로 RRF 병합 여부를 분기한다. 추출한 기사 5건은 각각 제목, 요약, 발행일, URL 문자열로 정리한 뒤 `"\n".join(...)`으로 묶어 질문 아래에 붙인다.
 
 완성된 프롬프트를 언어 모델 호출 래퍼 함수 `llm_call`(내부적으로 OpenAI 호환 API 클라이언트를 호출해 답변 텍스트를 반환하는 유틸리티)에 전달하면 전체 RAG 응답이 생성된다.
 
@@ -359,7 +371,8 @@ model_dir = os.environ.get("MODEL_PATH", "./models")
 model_name = os.path.join(model_dir, "BAAI/bge-base-en-v1.5")
 model = SentenceTransformer(model_name)
 
-embeddings = joblib.load(os.path.join(model_dir, "newsgroups_embeddings.joblib"))
+# 1절의 news_embeddings.joblib과 마찬가지로 현재 작업 디렉터리의 사전 계산 임베딩 파일을 불러온다
+embeddings = joblib.load("newsgroups_embeddings.joblib")
 ```
 
 ### 행렬 곱을 활용한 `cosine_similarity_batch` 개선

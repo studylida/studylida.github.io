@@ -15,7 +15,7 @@ FastAPI와 PostgreSQL, SQLAlchemy 기반 웹 백엔드에서 테스트 코드를
 
 ---
 
-## 2. HTTP 요청과 기본 응답 검증
+## 2. HTTP 요청과 응답
 
 테스트 코드를 작성할 때 가장 먼저 다루는 부분은 엔드포인트의 기본 상태 코드와 응답 본문 검증이다.
 
@@ -98,7 +98,7 @@ def test_create_workspace(client: TestClient) -> None:
 
 ---
 
-## 3. 스키마 검증과 422 방어
+## 3. 스키마 검증과 오류 방어
 
 백엔드 서버가 처리해야 하는 요청 중 상당수는 클라이언트의 필수값 누락이나 잘못된 타입 전송이다. 잘못된 데이터가 서비스 계층 내부로 진입하여 서버 내부 오류(`500 Internal Server Error`)를 일으키지 않도록, 진입점에서 입력 형식 오류로 즉시 차단(`422 Unprocessable Entity`)하는 검증이 필요하다.
 
@@ -253,7 +253,7 @@ def test_create_workspace_using_fixture(
     assert response.status_code == 201
 ```
 
-### 5.2 app.dependency_overrides와 뒷정리 누락 문제
+### 5.2 `app.dependency_overrides`와 뒷정리 누락 문제
 FastAPI 라우터가 인증이나 DB 세션을 주입받을 때는 다음과 같이 `Depends(...)`로 의존성 함수를 선언한다.
 
 ```python
@@ -262,7 +262,7 @@ def get_profile(user: dict = Depends(get_current_user)):
     return {"username": user["username"]}
 ```
 
-FastAPI는 이 의존성을 테스트 시점에 바꿔치기할 수 있도록 `app.dependency_overrides` 딕셔너리를 제공한다:
+FastAPI는 이 의존성을 테스트 시점에 대체할 수 있도록 `app.dependency_overrides` 딕셔너리를 제공한다:
 - **Key**: 대체하고자 하는 원래의 의존성 함수 (예: `get_current_user`)
 - **Value**: 대신 실행할 가짜 함수나 람다 (예: `lambda: {"username": "alice"}`)
 
@@ -347,9 +347,9 @@ assert saved.id == new_workspace.id
 assert saved.name == "진짜 DB 지도"
 ```
 
-주의할 점은 `db_session.get()` 호출 전에 `db_session.expire_all()`로 세션의 1차 캐시(Identity Map)를 비우는 것이다. `expire_all()` 없이 `db_session.get()`을 바로 부르면 SQLAlchemy가 메모리의 Identity Map에 남아 있던 `new_workspace` 인스턴스를 그대로 돌려주므로 DB에 실제 `SELECT` 쿼리를 날리지 않고 통과할 수 있다.
+주의할 점은 `db_session.get()` 호출 전에 `db_session.expire_all()`로 세션의 1차 캐시(Identity Map)를 비우는 것이다. `expire_all()` 없이 바로 `get()`을 부르면 SQLAlchemy가 메모리의 Identity Map에 남아 있던 `new_workspace` 인스턴스를 그대로 돌려준다. 이 경우 DB에 실제 `SELECT` 쿼리를 날리지 않고도 테스트가 통과할 수 있다.
 
-### 6.2 db_session.get과 select의 차이점
+### 6.2 `db_session.get`과 `select`의 차이점
 그렇다면 DB에서 데이터를 다시 꺼내올 때 어떤 방식을 사용하는 것이 적절할까? SQLAlchemy 2.0에서는 상황에 따라 두 가지 방식을 구분해 사용한다:
 
 - **`db_session.get(Model, pk)`**:
@@ -407,34 +407,43 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
 
 백엔드 시스템이 OpenAI API나 결제 게이트웨이 같은 외부 네트워크 서비스와 연동되어 있을 때는 테스트 격리가 더욱 중요하다. 테스트 실행 도중 실수로 실제 외부 서버로 HTTP 요청이 나가는 경로를 차단해야 한다. 불필요한 API 비용을 막고, 네트워크 지연이나 외부 장애가 테스트 결과를 흔들지 않도록 제어하기 위함이다.
 
-### 7.1 dependency_overrides의 한계와 monkeypatch의 등장
+### 7.1 `dependency_overrides`의 한계와 `monkeypatch`의 등장
 앞선 5장에서 FastAPI의 `app.dependency_overrides`를 통해 가짜 사용자를 주입하는 법을 배웠다. 그렇다면 외부 API 통신도 `dependency_overrides`로 막을 수 없을까?
 
 `dependency_overrides`는 FastAPI 라우터에서 `Depends()`를 통해 명시적으로 주입된 의존성에만 작동한다. 그러나 서비스 계층 내부나 서드파티 SDK 코드에서 직접 `httpx.Client()`나 `requests`를 생성하여 호출하는 라이브러리 레벨의 통신은 FastAPI의 DI 컨테이너를 거치지 않는다.
 
-따라서 파이썬 런타임 메모리 상에서 해당 HTTP 클라이언트 메서드 자체를 가로채는 `monkeypatch`가 필요하다. 단순 대입(`httpx.Client.post = fake`)을 사용하면 테스트 실패 시 원본 함수로 복구되지 않지만, pytest의 내장 `monkeypatch` 픽스처는 변경 전 원본 함수의 참조를 백업해 두었다가 테스트 종료 시 안전하게 원상 복구해 준다.
+따라서 파이썬 런타임 메모리 상에서 해당 HTTP 클라이언트 메서드 자체를 가로채는 `monkeypatch`가 필요하다. 단순 대입(`httpx.Client.send = fake`)을 쓰면 테스트 실패 시 원본으로 복구되지 않는다. 반면 pytest의 `monkeypatch` 픽스처는 원본 참조를 백업해 두었다가 테스트 종료 시 안전하게 원상 복구해 준다.
 
-### 7.2 monkeypatch.setattr의 인자 구조와 autouse 픽스처
-프로젝트 전역에서 모킹되지 않은 외부 HTTP 요청이 발생하는 것을 막기 위해 `autouse=True` 픽스처를 설정한다.
+### 7.2 `monkeypatch.setattr`의 인자 구조와 `autouse` 픽스처
+여기서 주의할 점은 `httpx.Client.post`를 무조건 막으면 안 된다는 것이다. FastAPI의 `TestClient` 자체가 `httpx.Client`를 상속받기 때문에, 전역으로 `.post`를 덮어쓰면 `client.post("/api/v1/workspaces")` 같은 정상 API 테스트까지 차단된다. 또한 `httpx.post()`나 `client.post()`는 내부적으로 모두 `Client.send()`(`AsyncClient.send()`)를 거쳐 전송된다.
+
+따라서 `autouse=True` 픽스처에서는 `httpx.Client.send`와 `httpx.AsyncClient.send`를 감싸되, `TestClient`가 쓰는 내부 가상 호스트(`testserver`) 요청만 통과시키고 실제 외부 호스트 요청은 모두 차단하도록 구성한다.
 
 ```python
 @pytest.fixture(autouse=True)
 def reject_model_calls(monkeypatch: pytest.MonkeyPatch) -> None:
-    """테스트 도중 모킹되지 않은 외부 HTTP 요청이 발생하면 즉시 예외를 발생시킨다."""
-    # 1. 호출 시 항상 AssertionError를 발생시키는 가짜 함수를 정의한다.
-    #    *args와 **kwargs를 지정하여 어떤 URL, 파라미터가 들어오든 전부 받아낸다.
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("테스트 도중 허가되지 않은 외부 HTTP 요청 발생")
+    """테스트 도중 TestClient 내부 호출 외의 실제 외부 HTTP 요청을 차단한다."""
+    original_sync_send = httpx.Client.send
+    original_async_send = httpx.AsyncClient.send
 
-    # 2. monkeypatch.setattr로 원래의 post 메서드를 위 forbidden 함수로 교체한다.
-    #    - 첫 번째 인자: 대체당할 대상 객체 경로 문자열 ("모듈.클래스.메서드")
-    #    - 두 번째 인자: 대체하여 실행할 새로운 가짜 함수
-    monkeypatch.setattr("httpx.Client.post", forbidden)
-    monkeypatch.setattr("httpx.AsyncClient.post", forbidden)
+    # 1. TestClient가 사용하는 ASGI 가상 호스트("testserver")가 아니면 AssertionError를 발생시킨다.
+    def guarded_sync_send(self: httpx.Client, request: httpx.Request, *args: object, **kwargs: object):
+        if request.url.host != "testserver":
+            raise AssertionError("테스트 도중 허가되지 않은 외부 HTTP 요청 발생")
+        return original_sync_send(self, request, *args, **kwargs)
+
+    async def guarded_async_send(self: httpx.AsyncClient, request: httpx.Request, *args: object, **kwargs: object):
+        if request.url.host != "testserver":
+            raise AssertionError("테스트 도중 허가되지 않은 외부 HTTP 요청 발생")
+        return await original_async_send(self, request, *args, **kwargs)
+
+    # 2. 모든 HTTP 메서드가 공통으로 통과하는 send 지점을 선택적 래퍼로 교체한다.
+    monkeypatch.setattr("httpx.Client.send", guarded_sync_send)
+    monkeypatch.setattr("httpx.AsyncClient.send", guarded_async_send)
 ```
 
 - **`autouse=True`**: 개별 테스트 함수의 매개변수에 `reject_model_calls`를 일일이 적지 않아도, pytest 러너가 테스트 스위트 내의 모든 테스트 함수에 대해 자동으로 이 픽스처를 활성화한다.
-- **`*args: object, **kwargs: object`**: `httpx.post("https://...")`가 내부적으로 어떤 URL, 헤더, 타임아웃 인자를 전달하더라도 에러 없이 모두 흡수하여 곧바로 차단 예외를 발생시키도록 가변 인자로 구성한다.
+- **호스트 선택적 차단 (`request.url.host != "testserver"`)**: `TestClient`의 `testserver` 요청은 원래 `send()`로 통과시키면서, `httpx.post("https://...")`나 SDK의 외부 호출은 메서드(`GET`/`POST` 무관)에 관계없이 모두 차단 예외를 발생시킨다.
 
 ### 7.3 with pytest.raises를 통한 차단 동작 검증
 위 차단 장치가 실제로 작동하는지 검증하기 위해 `with pytest.raises(...)` 컨텍스트 매니저를 사용할 수 있다.

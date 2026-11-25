@@ -381,12 +381,12 @@ total_tokens = result['usage']['total_tokens']
 |---|---|---|---|
 | **1차 의도 라우터** | 예시 8개가 포함된 장문 프롬프트 | 핵심 기준과 대표 예시 3개만 남긴 압축 프롬프트 | 분류 정확도를 유지하며 토큰 절반 수준 절감 |
 | **FAQ 문맥 주입** | 25개 FAQ 전체 주입 (약 1,220 토큰) | Weaviate `near_text` 상위 5개 검색 주입 | 관련 문답만 선별해 토큰 약 68% 절감 |
-| **2차 작업 라우터** | 장문 프롬프트 (~200+ 토큰) | 경계 사례(`vibrant colors`)를 반영한 단문 프롬프트 | 150 토큰 미만으로 의도 정확도 유지 |
+| **2차 작업 라우터** | 장문 프롬프트 (약 200+ 토큰) | 경계 사례(`vibrant colors`)를 반영한 단문 프롬프트 | 150 토큰 미만으로 의도 정확도 유지 |
 | **상품 검색** | LLM 메타데이터 필터 JSON 생성 + 완화 재검색 | LLM 필터 추출 생략 후 즉시 `near_text(limit=20)` | 필터 추출용 LLM 호출 1회와 약 1,500 토큰 제거 |
 
 ---
 
-### 3) 1차 라우터 프롬프트 경량화 (`check_if_faq_or_product`)
+### 3) [개선 1] 1차 라우터 프롬프트 경량화 (`check_if_faq_or_product`)
 
 기존(`simplified=False`) 1차 라우터 프롬프트는 설명과 8개 예시가 길어 질문 하나마다 많은 토큰을 소비한다. `simplified=True`일 때는 **핵심 분류 기준과 대표 예시 3개만 남겨 총 토큰 수(입력 + 출력)를 180 토큰 이하로 줄이면서도 동일한 분류 정확도를 유지**하도록 압축한다.
 
@@ -422,7 +422,7 @@ Query: {query}"""
     # Phoenix 트레이싱 스팬 기록 및 LLM 호출
     with tracer.start_as_current_span("routing_faq_or_product", openinference_span_kind="tool") as span:
         span.set_input(str({"query": query, "simplified": simplified}))
-        kwargs = generate_params_dict(PROMPT, temperature=0, max_tokens=10)
+        kwargs = generate_params_dict(PROMPT, model="Qwen/Qwen3.5-9B", temperature=0, max_tokens=10)
 
         with tracer.start_as_current_span("router_call", openinference_span_kind="llm") as router_span:
             router_span.set_input(kwargs)
@@ -477,7 +477,7 @@ for q in test_queries:
 
 > [!NOTE]
 > **수동으로 `router_span`을 기록하는 이유**
-> 6장에서는 `register(..., auto_instrument=True)`로 모든 LLM 호출을 자동 추적했다. 반면 챗봇 함수에서는 단위 테스트나 별도 실험용 호출이 대시보드에 섞이는 것을 막기 위해 자동 계측을 끄고, 추적이 필요한 함수 안에서 `openinference_span_kind="llm"` 스팬을 직접 연다. 여기에 **OpenInference 시맨틱 컨벤션(Semantic Conventions)** 표준 키(`llm.token_count.prompt`, `llm.token_count.completion`, `llm.token_count.total`, `llm.model_name`, `llm.provider`)를 남기면, Phoenix UI의 **`/settings/models` 메뉴**에 모델별 입력과 출력 단가를 등록했을 때 실제 달러($) 비용이 자동 합산된다.
+> 6장에서는 `register(..., auto_instrument=True)`로 모든 LLM 호출을 자동 추적했다. 반면 챗봇 함수에서는 단위 테스트나 별도 실험용 호출이 대시보드에 섞이는 것을 막기 위해 자동 계측을 끄고, 추적이 필요한 함수 안에서 `openinference_span_kind="llm"` 스팬을 직접 연다. 여기에 **OpenInference 시맨틱 컨벤션(Semantic Conventions)** 표준 키(`llm.token_count.prompt`, `llm.token_count.completion`, `llm.token_count.total`, `llm.model_name`, `llm.provider`)를 남기면, Phoenix UI의 **`/settings/models` 메뉴**에 모델별 입력과 출력 단가를 등록했을 때 실제 달러(\$) 비용이 자동 합산된다.
 
 ---
 
@@ -491,7 +491,7 @@ from weaviate.util import generate_uuid5
 # 1. Weaviate 'Faq' 컬렉션에 25개 FAQ 문답 배치 인덱싱
 faq_collection = client.collections.get("Faq")
 with faq_collection.batch.fixed_size(batch_size=20, concurrent_requests=5) as batch:
-    for document in faq:
+    for document in FAQ:
         batch.add_object(properties=document, uuid=generate_uuid5(document['question']))
 
 # 2. simplified=True 시 상위 5개 FAQ만 검색하여 프롬프트를 조립하는 함수
@@ -499,7 +499,7 @@ def query_on_faq(query: str, simplified: bool = False, **kwargs) -> dict:
     if not simplified:
         # 기존 방식: 25개 FAQ 전체를 프롬프트에 주입
         with tracer.start_as_current_span("query_on_faq", openinference_span_kind="tool") as span:
-            faq_layout = generate_faq_layout(faq)
+            faq_layout = generate_faq_layout(FAQ)
             PROMPT = f"""You will be provided with an FAQ for a clothing store. 
         Answer the instruction based on it. You might use more than one question and answer to make your answer. Only answer the question and do not mention that you have access to a FAQ. 
         <FAQ_ITEMS>
@@ -597,14 +597,31 @@ Output only one token: creative or technical.
 Query: {query}"""
 
     with tracer.start_as_current_span("decide_task_nature", openinference_span_kind="tool") as span:
-        kwargs = generate_params_dict(PROMPT, temperature=0, max_tokens=1)
+        span.set_input(str({"query": query, "simplified": simplified}))
+        kwargs = generate_params_dict(PROMPT, model="Qwen/Qwen3.5-9B", temperature=0, max_tokens=1)
         with tracer.start_as_current_span("router_call", openinference_span_kind="llm") as router_span:
+            router_span.set_input(kwargs)
             response = generate_with_single_input(**kwargs)
-            router_span.set_attribute("llm.token_count.total", response['usage']['total_tokens'])
+            usage = response.get('usage', {})
+            router_span.set_attribute("llm.model_name", response.get('model', kwargs.get('model')))
+            router_span.set_attribute("llm.token_count.prompt", usage.get('prompt_tokens', 0))
+            router_span.set_attribute("llm.token_count.completion", usage.get('completion_tokens', 0))
+            router_span.set_attribute("llm.token_count.total", usage.get('total_tokens', 0))
+            router_span.set_output(response)
             router_span.set_status(Status(StatusCode.OK))
 
-        label = response['choices'][0]['message']['content'].strip().lower()
-        total_tokens = response['usage']['total_tokens']
+        raw_label = response['choices'][0]['message']['content'].strip().lower()
+        # 경량 모델 응답에 구두점이나 부가 설명이 섞여도 'technical'/'creative' 라벨을 안전하게 정규화
+        if 'technical' in raw_label:
+            label = 'technical'
+        elif 'creative' in raw_label:
+            label = 'creative'
+        else:
+            # 판별 불가 응답은 검색 기반 정합성이 우선되는 'technical' 경로로 폴백
+            label = 'technical'
+
+        total_tokens = usage.get('total_tokens', 0)
+        span.set_output(str({"label": label, "total_tokens": total_tokens}))
         span.set_status(Status(StatusCode.OK))
         return label, total_tokens
 ```
@@ -618,6 +635,15 @@ Query: {query}"""
 하지만 Weaviate의 `near_text()` 임베딩 검색은 자연어 질문 자체의 문맥(성별, 계절, 색상, 품목 등)을 벡터 유사도로 잘 포착한다. 따라서 `simplified=True`일 때는 **LLM을 통한 메타데이터 필터 생성을 생략(소모 토큰 0개)하고, 곧바로 `products_collection.query.near_text(query, limit=20)`으로 20개의 상품을 시맨틱 검색**하여 반환한다. 다만 `"100달러 이하"`, `"빨간색 제외"`처럼 정확한 수치 범위나 부정 조건을 반드시 지켜야 하는 질문에서는 순수 시맨틱 검색만으로는 조건 밖 상품이 섞일 수 있다. 그런 엄격한 필터링이 중요한 질의라면 경량 규칙 파서나 하이브리드 필터링을 병행해야 한다.
 
 ```python
+def generate_filters_from_query_with_usage(query: str) -> tuple[list | None, int]:
+    """4편 허용값 주입 프롬프트를 OpenAI 호환 형식으로 호출해 (Filter 리스트, 소모 토큰)을 반환한다."""
+    prompt = build_metadata_prompt(query, values)
+    kwargs = generate_params_dict(prompt, model="Qwen/Qwen3.5-9B", temperature=0, max_tokens=1500)
+    response = generate_with_single_input(**kwargs)
+    content = response['choices'][0]['message']['content']
+    total_tokens = response.get('usage', {}).get('total_tokens', 0)
+    return get_filter_by_metadata(parse_json_output(content)), total_tokens
+
 def get_relevant_products_from_query(query: str, simplified: bool = False) -> tuple[list, int]:
     """
     상품을 검색하여 (상품 객체 리스트, 검색 과정에서 소모된 LLM 토큰 수)를 반환한다.
@@ -639,28 +665,43 @@ def get_relevant_products_from_query(query: str, simplified: bool = False) -> tu
             # LLM을 호출하지 않았으므로 소모된 토큰 수 자리에 0을 반환한다!
             return results.objects, 0
 
-    # simplified=False일 때: 기존 방식대로 LLM으로 메타데이터 JSON 필터를 생성(~1,500 토큰 소모)한 뒤 검색
+    # simplified=False일 때: 기존 방식대로 LLM으로 메타데이터 JSON 필터를 생성(약 1,500 토큰 소모)한 뒤 검색
     with tracer.start_as_current_span("get_relevant_products_from_query", openinference_span_kind="retriever") as span:
-        filters, total_tokens = generate_filters_from_query(query)
+        span.set_input({'query': query, 'simplified': simplified})
+        filters, total_tokens = generate_filters_from_query_with_usage(query)
+        span.set_attribute("retrieval.token_cost", total_tokens)
+
+        # JSON 파싱 실패나 빈 필터 결과일 때는 필터 없는 순수 시맨틱 검색으로 바로 폴백
         if filters is None or len(filters) == 0:
             results = products_collection.query.near_text(query, limit=20)
+            span.set_output({"results": results.objects, "total_tokens": total_tokens, "fallback": "no_filter"})
+            span.set_status(Status(StatusCode.OK))
             return results.objects, total_tokens
 
         results = products_collection.query.near_text(query, filters=Filter.all_of(filters), limit=20)
+        # 구체적 속성부터 핵심 속성(baseColour) 순서로 필터를 완화해 0건 반환 방지
         drop_order = ['gender', 'season', 'usage', 'articleType', 'masterCategory', 'baseColour']
         if len(results.objects) < 10:
             for i in range(len(drop_order)):
                 dropped = set(drop_order[:i + 1])
                 relaxed = [x for x in filters if x.target not in dropped]
+                # 완화 후 남는 필터 조건이 없으면 빈 Filter.all_of([]) 호출을 막기 위해 루프 종료
                 if not relaxed:
                     break
                 results = products_collection.query.near_text(
                     query, filters=Filter.all_of(relaxed), limit=20
                 )
+                # 최소 5건 이상 후보를 확보하면 과도한 필터 완화를 멈추고 즉시 반환
                 if len(results.objects) >= 5:
+                    span.set_output({"results": results.objects, "total_tokens": total_tokens, "relaxed_step": i + 1})
+                    span.set_status(Status(StatusCode.OK))
                     return results.objects, total_tokens
+            # 모든 필터 완화 단계에서도 5건 미만이면 필터를 전면 해제한 순수 시맨틱 검색으로 폴백
             if len(results.objects) < 5:
                 results = products_collection.query.near_text(query, limit=20)
+
+        span.set_output({"results": results.objects, "total_tokens": total_tokens})
+        span.set_status(Status(StatusCode.OK))
         return results.objects, total_tokens
 ```
 
@@ -704,14 +745,17 @@ def answer_query(
     label, tokens = check_if_faq_or_product(query, simplified=simplified)
     total_tokens += tokens
 
+    # 1차 의도가 FAQ/Product 범주 밖이면 검색 없이 안내 프롬프트로 안전 폴백
     if label not in ['FAQ', 'Product']:
         return {
             "role": "assistant",
             "prompt": f"User provided a question that does not fit FAQ or Product-related categories. Answer it based on the context you already have. Query provided by the user: {query}"
         }, total_tokens
 
+    # FAQ 경로: 상점 정책과 주문 절차 문맥을 조립해 LLM 파라미터 생성
     if label == 'FAQ':
         kwargs = query_on_faq(query, simplified=simplified)
+    # Product 경로: 상품 검색이나 LLM 호출 실패 시 전체 파이프라인 중단 대신 재질문 유도 폴백 반환
     elif label == 'Product':
         try:
             kwargs, tokens = query_on_products(query, simplified=simplified)
@@ -759,3 +803,9 @@ Here are three examples of blue T-shirts available in our catalogue:
 최종 실행 결과를 보면 다음과 같은 비용과 지연 시간 최적화 효과를 확인할 수 있다:
 1. **라우터 경량화와 불필요한 LLM 호출 제거**: 프롬프트 생성 전 준비 단계(`prep_tokens`)에서 소모되던 토큰이 **1,852 토큰에서 196 토큰으로 약 89% 감소**했으며, 메타데이터 추출을 위한 LLM 왕복 호출이 사라져 응답 지연 시간도 크게 단축되었다.
 2. **모델 크기 이원화(Model Tiering)**: 단순 분류를 수행하는 1차와 2차 라우터는 가벼운 소형 모델(`Qwen/Qwen3.5-9B`)로 빠르게 처리한다. 반면 마지막 `answer_query`에서 최종 고객 답변을 작성할 때만 고성능 모델(`Llama-3.3-70B-Instruct-Turbo`)을 지정해 비용과 품질의 균형을 맞춘다.
+
+---
+
+## 8. 참고 자료
+
+- DeepLearning.AI — *Retrieval Augmented Generation (RAG)*, Module 5: Production RAG Optimization and Multimodal Retrieval

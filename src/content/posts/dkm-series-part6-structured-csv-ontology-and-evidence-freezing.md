@@ -2,7 +2,7 @@
 title: "DKM 아키텍처 6편: 정형 CSV 집계와 의미 모델 기반 근거 보존"
 description: "CSV 형식 검사와 열 의미 매핑을 분리해 여러 표의 비율을 계산하고, 결합 시 분모 중복과 상위 조건 변경에 따른 근거 왜곡을 막는 구조를 정리한다."
 pubDate: "2026-11-24 08:40:00"
-tags: ["DKM", "CSV", "Ontology", "Evidence", "Snapshot", "DataValidation", "Python"]
+tags: ["DKM", "CSV", "Ontology", "Evidence", "StructuredData", "DataValidation", "Python"]
 categories: ["Architecture", "Backend"]
 draft: false
 ---

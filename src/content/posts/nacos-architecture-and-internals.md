@@ -11,7 +11,7 @@ draft: false
 
 ---
 
-## 1. Nacos 개념과 MSA의 과제
+## 1. Nacos와 MSA 과제
 
 단일 서버에서 모든 기능이 동작하던 모놀리스(Monolith) 환경에서는 인프라 관리가 비교적 단순했다. 컴포넌트 간 호출은 JVM 인메모리 함수 호출로 처리되었고, 애플리케이션 설정은 배포 패키지 내 `application.properties` 하나로 충분했다.
 
@@ -47,7 +47,7 @@ Alibaba가 오픈소스로 공개한 **Nacos(Naming and Configuration Service)**
 
 ---
 
-## 2. Eureka 대비 아키텍처 강점
+## 2. Eureka 대비 강점
 
 과거 Spring Cloud 생태계의 표준이었던 Netflix Eureka 기반 스택과 Nacos의 구조적 차이는 아키텍처 단순성에서 출발한다.
 
@@ -206,15 +206,18 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     autonumber
+    participant Client
     participant Event as NacosConfigListener
     participant NCR as NacosContextRefresher
+    participant REL as RefreshEventListener
     participant CR as ContextRefresher
     participant Scope as RefreshScope Cache
     participant Proxy as CGLIB Virtual Proxy
     participant Target as Real Bean Instance
 
     Event->>NCR: 설정 변경 콜백 (Listener.receiveConfigInfo)
-    NCR->>CR: RefreshEvent 발행 -> refresh() 호출
+    NCR->>REL: RefreshEvent 발행
+    REL->>CR: refresh() 호출
     CR->>Scope: 기존 Bean 인스턴스 제거 (Evict)
     Client->>Proxy: 비즈니스 메서드 호출 (getDiscount())
     Proxy->>Scope: get("configController") 조회 (Cache Miss)
@@ -223,7 +226,7 @@ sequenceDiagram
 ```
 
 * `@RefreshScope`가 선언된 빈은 스프링 컨텍스트에 일반 싱글톤 객체로 등록되지 않고 **CGLIB 가상 프록시(Proxy)**로 감싸진다.
-* Nacos 설정이 바뀌면 클라이언트 내부 리스너가 이를 수신하고, Spring Cloud Alibaba의 `NacosContextRefresher`가 스프링 `RefreshEvent`를 발행한다. 이 이벤트를 받은 `ContextRefresher.refresh()`는 환경 설정을 다시 읽고 `RefreshScope` 캐시에서 대상 빈 인스턴스를 제거(Evict)한다.
+* Nacos 설정이 바뀌면 클라이언트 내부 리스너가 이를 수신하고, Spring Cloud Alibaba의 `NacosContextRefresher`가 스프링 `RefreshEvent`를 발행한다. 이를 수신한 `RefreshEventListener`가 `ContextRefresher.refresh()`를 호출해 `RefreshScope` 캐시에서 대상 빈 인스턴스를 제거(Evict)한다.
 * 이어서 비즈니스 요청이 들어와 프록시가 빈을 조회하면 캐시 미스가 발생한다. 이때 최신 프로퍼티를 주입받은 **새 인스턴스가 즉석에서 지연 생성(Lazy Initialization)**되어 메서드를 실행한다.
 
 ---
@@ -281,7 +284,7 @@ spring:
 
 > [!NOTE]
 > **코드 발췌 범위: Nacos 1.x 기본 메커니즘**
-> 아래 5.2절과 5.3절의 `BeatReactor` 및 HTTP 롱 폴링 기반 `ClientWorker`는 Nacos 1.x 코드베이스에 구현된 원형 메커니즘이다. Nacos 2.x에서는 이 통신을 gRPC 영구 스트림으로 옮겼지만, 서버 부하 기반 주기 조절과 해시 우선 확인 원칙은 동일하다.
+> 아래 2)절과 3)절의 `BeatReactor` 및 HTTP 롱 폴링 기반 `ClientWorker`는 Nacos 1.x 코드베이스에 구현된 원형 메커니즘이다. Nacos 2.x에서는 이 통신을 gRPC 영구 스트림으로 옮겼지만, 서버 부하 기반 주기 조절과 해시 우선 확인 원칙은 동일하다.
 
 ### 2) BeatReactor의 탄력적 백오프 스케줄링 분석
 * **해결하려는 문제**: 수천 개 인스턴스가 고정 5초 타이머로 일제히 하트비트를 보내면, Nacos 서버에 부하가 몰릴수록 타임아웃과 재시도가 겹쳐 부하가 더 커진다. 또한 매번 인스턴스 전체 메타데이터를 실어 보내면 직렬화와 네트워크 비용도 커진다.
@@ -346,10 +349,13 @@ public class ClientWorker {
                 String[] key = GroupKey.parseKey(groupKey);
                 String content = getServerConfig(key[0], key[1], key[2], 3000L); // 3초 타임아웃
                 
-                // 4. 캐시 내용과 MD5를 갱신하고, 등록된 Nacos Listener를 호출한다.
-                //    (Spring Cloud Alibaba의 NacosContextRefresher가 이 리스너를 받아 RefreshEvent를 발행한다.)
-                CacheData cache = cacheMap.get(GroupKey.getKeyTenant(key[0], key[1], key[2]));
-                cache.setContent(content);
+                // 4. AtomicReference(cacheMap)에서 CacheData를 조회해 내용/MD5를 갱신한 뒤, 변경 감지 시 Listener를 깨운다.
+                //    (Spring Cloud Alibaba의 NacosContextRefresher가 이 Listener를 받아 RefreshEvent를 발행한다.)
+                CacheData cache = cacheMap.get().get(GroupKey.getKeyTenant(key[0], key[1], key[2]));
+                if (cache != null) {
+                    cache.setContent(content);
+                    cache.checkListenerMd5();
+                }
             }
             
             // 5. 이번 주기 처리가 끝나면 다음 롱 폴링 루프를 바로 예약한다.

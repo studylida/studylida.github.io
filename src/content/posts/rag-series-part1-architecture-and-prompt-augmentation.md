@@ -55,6 +55,7 @@ RAG 시스템은 언어 모델 앞단에 신뢰할 수 있는 문서를 모아�
 이 검색과 생성의 결합 과정을 파이썬 코드로 나타내면 세 단계 함수 호출로 정리된다.
 
 ```python
+# 아래 코드는 2절의 전체 데이터 흐름을 보여 주는 개념 예시이며, 실제 실행 코드는 4절에서 단계별로 구현한다.
 def rag_pipeline(query: str, top_k: int = 3) -> str:
     # 1. 지식 베이스에서 질의와 연관성이 높은 문서 검색
     retrieved_docs = retrieve(query, top_k=top_k)
@@ -150,7 +151,7 @@ import pandas as pd
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# 사전에 임베딩 모델, 뉴스 레코드 목록, 기사 임베딩 행렬을 메모리에 올린다.
+# 임베딩 모델, 뉴스 레코드 목록, 사전 계산 임베딩(.joblib 직렬화 파일)을 메모리에 올린다.
 model = SentenceTransformer("BAAI/bge-base-en-v1.5")
 NEWS_DATA = pd.read_csv("news_data_dedup.csv").to_dict("records")
 EMBEDDINGS = joblib.load("embeddings.joblib")
@@ -170,8 +171,8 @@ def retrieve(query: str, top_k: int = 5) -> np.ndarray:
 
     return top_k_indices
 
-# 추출한 행 인덱스 목록으로 실제 기사 딕셔너리 레코드를 꺼낸다.
-def query_news(indices: list[int]) -> list[dict]:
+# 추출한 행 인덱스(list[int] 또는 np.ndarray) 목록으로 실제 기사 딕셔너리 레코드를 꺼낸다.
+def query_news(indices: list[int] | np.ndarray) -> list[dict]:
     output = [NEWS_DATA[index] for index in indices]
     return output
 
@@ -210,6 +211,7 @@ def format_relevant_data(relevant_data: list[dict]) -> str:
 
 # 2. RAG 활성화 여부에 따른 프롬프트 분기 조립
 def generate_final_prompt(query: str, top_k: int = 5, use_rag: bool = True, prompt: str = None) -> str:
+    # RAG 비활성화 모드(use_rag=False)에서는 검색 없이 원본 질문만 그대로 반환한다.
     if not use_rag:
         return query
 
@@ -217,6 +219,7 @@ def generate_final_prompt(query: str, top_k: int = 5, use_rag: bool = True, prom
     relevant_data = get_relevant_data(query, top_k=top_k)
     retrieve_data_formatted = format_relevant_data(relevant_data)
 
+    # 별도 템플릿이 없으면(prompt is None) 제공된 맥락이 2024년 최신 뉴스임을 명시하는 기본 프롬프트를 사용한다.
     if prompt is None:
         prompt = (
             f"Answer the user query below. There will be provided additional information for you to compose your answer. "
@@ -241,6 +244,8 @@ def generate_final_prompt(query: str, top_k: int = 5, use_rag: bool = True, prom
 증강 프롬프트가 완성되면 이를 언어 모델 API 엔드포인트에 전달하여 최종 답변을 생성한다. 여기서 `generate_with_single_input()`은 단일 프롬프트 문자열을 받아 언어 모델 API를 호출하고 응답 딕셔너리를 돌려주는 공용 래퍼 함수다.
 
 ```python
+from utils import generate_with_single_input
+
 # 검색, 프롬프트 조립, LLM 생성을 하나의 종단간 흐름으로 묶는다.
 def llm_call(query: str, top_k: int = 5, use_rag: bool = True, prompt: str = None) -> str:
     # RAG 사용 여부에 따라 일반 질의 또는 기사가 포함된 증강 프롬프트를 준비

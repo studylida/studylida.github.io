@@ -43,9 +43,16 @@ def readiness_check_2():
 # 3. 텍스트 임베딩 생성 엔드포인트 (text2vec-transformers 호출 대상)
 @app.route("/vectors", methods=["POST"])
 def vectorize():
-    # Weaviate 버전과 요청 형태에 따라 문자열(str), 딕셔너리(dict), JSON 인코딩 문자열을 모두 흡수해 리스트로 정규화한다
+    # Weaviate 버전과 요청 형태에 따라 JSON 딕셔너리, JSON 직렬화 문자열, 순수 평문 문자열을 모두 정규화한다
     data = request.json.get("text") if request.json else request.data.decode("utf-8")
-    text = json.loads(data) if isinstance(data, str) else data
+    if isinstance(data, str):
+        try:
+            text = json.loads(data)
+        except json.JSONDecodeError:
+            # {"text": "plain text"}처럼 JSON 문자열이 아닌 일반 문장이면 그대로 리스트로 감싼다
+            text = data
+    else:
+        text = data
     if isinstance(text, str):
         text = [text]
     elif isinstance(text, dict):
@@ -300,6 +307,7 @@ for book_text_obj in book_text_objs:
 청크 객체들을 저장할 Weaviate 컬렉션을 생성한다. 컬렉션에는 어떤 속성들을 묶어 벡터화할지와 각 속성의 데이터 타입, 토큰화 규칙을 지정한다.
 
 ```python
+# 이미 같은 이름의 컬렉션이 디스크에 있으면 중복 생성 오류를 피하기 위해 기존 컬렉션을 그대로 불러온다.
 if not client.collections.exists("chunking_example"):
     collection = client.collections.create(
         name="chunking_example",
@@ -336,18 +344,24 @@ else:
 이제 네 전략의 청크들을 `collection.batch.fixed_size`로 적재한다.
 
 ```python
+# 컬렉션이 비어 있을 때만 적재를 실행해 스크립트 재실행 시 중복 작업을 건너뛴다.
 if len(collection) == 0:
     # 로컬 단일 Flask 서버로의 과대한 배치 타임아웃을 막기 위해 batch_size=1로 쪼개되 concurrent_requests=20으로 병렬 처리한다
+    stop_import = False
     with collection.batch.fixed_size(batch_size=1, concurrent_requests=20) as batch:
         for chunking_strategy, chunk_objects in tqdm.tqdm(chunk_obj_sets.items()):
+            if stop_import:
+                break
             for chunk_obj in chunk_objects:
                 chunk_obj["chunking_strategy"] = chunking_strategy
                 batch.add_object(
                     properties=chunk_obj,
                     uuid=generate_uuid5(chunk_obj)
                 )
+                # 서버 오류나 네트워크 장애로 실패가 10건을 넘으면 나머지 전략 적재까지 즉시 중단한다.
                 if batch.number_errors > 10:
                     print("Batch import stopped due to excessive errors.")
+                    stop_import = True
                     break
 
     failed_objects = collection.batch.failed_objects
@@ -709,13 +723,15 @@ title: Protests across Venezuela as election dispute goes on
 
 ### 검색 함수를 교체할 수 있는 프롬프트 생성기
 
-지금까지 만든 네 가지 검색기(`semantic_search_retrieve`, `bm25_retrieve`, `hybrid_retrieve`, `semantic_search_with_reranking`)는 모두 동일한 속성 딕셔너리 리스트를 반환한다. 따라서 검색 함수를 인자(`retrieve_function: callable`)로 넘기면 하나의 프롬프트 생성기(`generate_final_prompt`)로 모든 검색 방식을 교체하며 실험할 수 있다.
+지금까지 만든 네 가지 검색기(`semantic_search_retrieve`, `bm25_retrieve`, `hybrid_retrieve`, `semantic_search_with_reranking`)는 모두 동일한 속성 딕셔너리 리스트를 반환한다. 따라서 검색 함수를 인자(`retrieve_function`)로 넘기면 하나의 프롬프트 생성기(`generate_final_prompt`)로 모든 검색 방식을 교체하며 실험할 수 있다. *(리랭킹 전용 인자를 받는 `semantic_search_with_reranking`은 `use_rerank=True`와 함께 넘기고, 나머지 세 검색기는 `use_rerank=False`로 호출한다.)*
 
 ```python
+from typing import Callable
+
 def generate_final_prompt(
     query: str,
     top_k: int,
-    retrieve_function: callable,
+    retrieve_function: Callable | None = None,
     rerank_query: str = None,
     rerank_property: str = None,
     use_rerank: bool = False,
@@ -725,8 +741,13 @@ def generate_final_prompt(
     if not use_rag:
         return query
 
+    # 검색기 함수가 생략된 경우 기본 하이브리드 검색기로 대체해 None 호출 오류를 막는다
+    if retrieve_function is None:
+        retrieve_function = hybrid_retrieve
+
     # 2. 리랭킹 옵션 활성화 여부에 따라 검색 함수 인자 분기
     if use_rerank:
+        # 크로스 인코더 리랭킹에서는 어떤 속성 텍스트('chunk', 'title' 등)를 재채점할지 필수 지정해야 한다
         if rerank_property is None:
             raise ValueError("rerank_property must be set if use_rerank = True")
         top_k_documents = retrieve_function(
@@ -756,8 +777,8 @@ def generate_final_prompt(
     prompt = (
         f"Answer the user query below. There will be provided additional information for you to compose your answer. "
         f"The relevant information provided is from 2024 and it should be added as your overall knowledge to answer the query, "
-        f"you should not rely only on this information to answer the query, but add it to your overall knowledge."
-        f"The news data is ordered by relevance."
+        f"you should not rely only on this information to answer the query, but add it to your overall knowledge.\n"
+        f"The news data is ordered by relevance.\n"
         f"Query: {query}\n"
         f"2024 News: {formatted_data}"
     )
@@ -774,7 +795,7 @@ def generate_final_prompt(
 ```python
 def llm_call(
     query: str,
-    retrieve_function: callable = None,
+    retrieve_function: Callable | None = None,
     top_k: int = 5,
     use_rag: bool = True,
     use_rerank: bool = False,

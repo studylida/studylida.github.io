@@ -559,7 +559,7 @@ def route_query_template(query: str) -> str | None:
 이 구조를 바탕으로 1차 라우터 `check_if_faq_or_product`를 구현한다. 예시 중 네 번째 문장(`"I bought a T-shirt and I didn't like it. How can I get a refund? Label: FAQ"`)이 경계 기준 역할을 한다. 질문 안에 `"T-shirt"` 단어가 들어 있어도 핵심 의도가 환불 절차 문의이므로 `Product`가 아니라 `FAQ`로 분류하도록 가르친다.
 
 ```python
-def check_if_faq_or_product(query: str) -> str:
+def check_if_faq_or_product(query: str) -> str | None:
     """사용자 질문을 분석하여 'FAQ', 'Product', 또는 분류 불가 시 None을 반환하는 1차 라우터."""
     prompt = f"""Label the following instruction as an FAQ-related query or a product-related query.
 Product-related answers are specific to product information or require using product details to answer. Products are clothes from a store.
@@ -821,27 +821,30 @@ results = products_collection.query.near_text(
 ```
 
 실제 파이프라인에서는 세 가지 예외 상황을 함께 방어해야 한다.
-1. **비정형 JSON 문법 오류 방어 (`parse_json_output`)**: LLM 출력에 줄바꿈(`\n`)이나 이중 중괄호가 남아 있으면 정제한 뒤 `json.loads()`를 실행한다. 그래도 파싱할 수 없으면 에러로 중단하지 않고 `None`을 반환해 일반 시맨틱 검색으로 넘긴다.
+1. **비정형 JSON 문법 오류 방어 (`parse_json_output`)**: LLM 출력에 줄바꿈(`\n`), 작은따옴표(`'`), 이중 중괄호가 남아 있으면 정제한 뒤 `json.loads()`를 실행한다. 그래도 파싱할 수 없으면 에러로 중단하지 않고 `None`을 반환해 일반 시맨틱 검색으로 넘긴다.
 2. **가격 하한과 상한 독립 검사 (`get_filter_by_metadata`)**: `"300달러 이하"` 질문의 JSON은 `{"min": 0, "max": 300}` 형태가 된다. 만약 `min <= 0 or max == 'inf'`처럼 OR 조건으로 건너뛰면 `min == 0` 때문에 **`max < 300` 상한 조건까지 통째로 빠지는 버그**가 생긴다. 따라서 하한(`min > 0`)과 상한(`max != 'inf'`)은 반드시 각각 독립 검사해 필터를 추가한다.
 3. **과도한 AND 필터의 단계적 완화**: 7개 조건을 한꺼번에 만족하는 상품이 10개 미만이면 중요도가 낮은 속성(`gender` ➔ `season` ➔ `usage` ➔ `articleType` ➔ `masterCategory` ➔ `baseColour`) 순서대로 하나씩 제외하며 `5`개 이상의 후보가 확보될 때까지 단계적으로 조건을 넓힌다. 끝까지 못 채우면 필터 없이 시맨틱 검색으로 폴백한다.
 
 ```python
 def parse_json_output(llm_output: str) -> dict | None:
     """LLM 출력 문자열에서 포맷 노이즈를 제거하고 JSON 딕셔너리로 파싱한다. 실패 시 None 반환."""
+    cleaned = llm_output.replace("\n", "").replace("'", '"').strip()
     try:
-        cleaned = (
-            llm_output.replace("\n", "")
-            .replace("'", '"')
-            .replace("}}", "}")
-            .replace("{{", "{")
-        )
+        # 유효한 중첩 JSON({'price': {...}}) 끝의 '}}'를 깎지 않도록 먼저 바로 파싱을 시도한다
         return json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        print(f"JSON parsing failed: {e}")
-        return None
+    except json.JSONDecodeError:
+        # 프롬프트 예시에서 남은 바깥쪽 이중 중괄호('{{...}}') 노이즈가 섞인 경우에만 보정 후 재시도한다
+        try:
+            normalized = cleaned.replace("{{", "{").replace("}}", "}")
+            return json.loads(normalized)
+        except json.JSONDecodeError as e:
+            # 파싱에 실패해도 파이프라인 전체를 중단하지 않고 None을 돌려 순수 시맨틱 검색으로 넘긴다
+            print(f"JSON parsing failed: {e}")
+            return None
 
 def get_filter_by_metadata(json_output: dict | None = None) -> list | None:
     """파싱된 메타데이터 딕셔너리를 Weaviate Filter 객체 리스트로 변환한다."""
+    # JSON 파싱 실패 등으로 None이 들어오면 필터 없이 검색할 수 있게 그대로 None 반환
     if json_output is None:
         return None
 
@@ -849,10 +852,12 @@ def get_filter_by_metadata(json_output: dict | None = None) -> list | None:
     filters = []
 
     for key, value in json_output.items():
+        # 허용된 7개 속성 스키마 바깥의 LLM 임의 키는 무시해 Weaviate 쿼리 오류를 막는다
         if key not in valid_keys:
             continue
 
         if key == 'price':
+            # price 값이 dict({"min": ..., "max": ...}) 형태가 아니면 잘못된 타입으로 보고 건너뛴다
             if not isinstance(value, dict):
                 continue
             min_price = value.get('min')
@@ -863,7 +868,7 @@ def get_filter_by_metadata(json_output: dict | None = None) -> list | None:
             if isinstance(max_price, (int, float)):
                 filters.append(Filter.by_property(key).less_than(max_price))
         elif isinstance(value, list) and value:
-            # 리스트 내 값 중 하나라도 일치하면 통과하는 contains_any 필터 추가
+            # 범주형 속성은 비어 있지 않은 리스트일 때만 contains_any 필터를 추가한다
             filters.append(Filter.by_property(key).contains_any(value))
 
     return filters
@@ -880,6 +885,7 @@ def get_relevant_products_from_query(query: str) -> list:
     """
     filters = generate_filters_from_query(query)
 
+    # 추출된 유효 필터가 없으면 곧바로 순수 시맨틱 검색을 수행한다
     if not filters:
         return products_collection.query.near_text(query, limit=20).objects
 
@@ -893,11 +899,13 @@ def get_relevant_products_from_query(query: str) -> list:
         for i in range(len(drop_order)):
             dropped = set(drop_order[:i + 1])
             relaxed = [x for x in filters if x.target not in dropped]
+            # 모든 필터가 빠졌으면 빈 Filter.all_of([]) 호출 오류를 막기 위해 루프를 빠져나간다
             if not relaxed:
                 break
             res = products_collection.query.near_text(
                 query, filters=Filter.all_of(relaxed), limit=20
             ).objects
+            # 완화 결과 5개 이상을 확보했으면 추가 완화를 멈추고 즉시 반환한다
             if len(res) >= 5:
                 return res
         # 모든 완화 단계를 거쳐도 5개 미만이면 순수 시맨틱 검색으로 폴백
@@ -958,6 +966,7 @@ def answer_query(query: str) -> dict:
     """사용자 질문을 받아 FAQ 또는 Product 워크플로로 라우팅하고 예외를 방어하는 최종 오케스트레이터."""
     label = check_if_faq_or_product(query)
 
+    # 1. 1차 라우터가 FAQ/Product 외 값(None 등)을 반환하면 추가 검색 없이 일반 안내 프롬프트로 폴백한다
     if label not in ['FAQ', 'Product']:
         return {
             "role": "assistant",
@@ -966,8 +975,10 @@ def answer_query(query: str) -> dict:
                 f"Answer it based on the context you already have so far. Query provided by the user: {query}"
             )
         }
+    # 2. 매장 정책 문의로 분류되면 정적 FAQ 문맥을 결합하는 경로를 실행한다
     if label == 'FAQ':
         kwargs = query_on_faq(query)
+    # 3. 상품 문의는 외부 JSON 추출 및 Weaviate 호출 예외에 대비해 try...except 폴백으로 감싼다
     if label == 'Product':
         try:
             kwargs = query_on_products(query)

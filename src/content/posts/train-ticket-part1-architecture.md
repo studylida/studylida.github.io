@@ -270,7 +270,7 @@ Train Ticket의 영속성 계층은 도메인 요구사항에 맞춰 서로 다�
   * 파이썬(Tornado)으로 작성된 이 서비스는 열차 탑승 후 승객이 기업 출장비 정산이나 세무 신고를 위해 발급받는 공식 세무 영수증을 관리한다.
   * 회계 증빙 서류는 **하나의 주문당 단 1건만 순차 일련번호(`AUTO_INCREMENT voucher_id`)로 유일하게 발급**되어야 하며, 중복 청구나 1원의 오차도 허용되지 않는다.
   * MongoDB의 비동기 복제 기반 최종 일관성(Eventual Consistency)만으로는 동시성 요청에서 중복 발급 경합(Race Condition)을 막기 까다롭다. 따라서 명시적 트랜잭션 격리(`conn.commit()`)와 고유 제약조건(Unique Key)을 제공하는 MySQL을 택했다.
-* **`ts-auth-service` / `ts-user-service`**: 사용자의 계정 ID, 비밀번호 해시, 권한 역할(Role) 간의 관계는 전형적인 정규화 대상이자 관계형 모델에 부합한다.
+* **`ts-auth-service`**: 사용자의 계정 ID, 비밀번호 해시, 권한 역할(Role) 간의 관계는 전형적인 정규화 대상이자 관계형 모델에 부합해 MySQL을 사용한다. (`ts-voucher-service`와 함께 26개 DB 중 RDBMS 2곳을 이룬다.)
 
 > [!NOTE]
 > **최신 버전의 MySQL 통합 전환 옵션**
@@ -300,7 +300,7 @@ public class Response<T> {
 * 여기서 `status`는 HTTP 상태 코드(`200`, `400`)가 아니라 **자체 비즈니스 플래그(`1: 성공`, `0: 실패`)**다.
 * 스프링 컨트롤러가 이 래퍼를 돌려줄 때 HTTP 헤더는 대체로 성공(`200 OK`)으로 내려간다. 따라서 호출자가 HTTP 상태(`is2xxSuccessful()`)만 확인하면 비즈니스 실패(`status == 0`)를 정상 처리로 오판하는 결함이 생기므로 반드시 `response.getStatus() == 1`을 함께 검증해야 한다.
 
-### 2) 예외를 삼키는 기본값 폴백 (상태 코드와 날짜 파싱)
+### 2) 예외 대신 기본값으로 덮는 폴백 (상태 코드와 날짜 파싱)
 
 공통 유틸리티가 잘못된 입력을 만났을 때 명시적 예외 대신 그럴듯한 기본값을 반환하면, 장애 원인이 숨은 채 하위 로직으로 전파된다. `ts-common`에서는 주문 상태 조회와 날짜 파싱 두 곳에서 이 문제가 나타난다.
 
@@ -310,7 +310,7 @@ public class Response<T> {
 | `StringUtils.String2Date` | 깨진 날짜 문자열 | `new Date(0)` (`1970-01-01`) 반환 | 새 티켓이 '출발 시각 지난 만료표'로 오판되어 환불 불가 |
 
 ```java
-// 알 수 없는 상태 코드나 파싱 실패 시 예외를 삼키고 기본값으로 폴백하는 대표 패턴
+// 알 수 없는 상태 코드나 파싱 실패 시 예외를 숨기고 기본값으로 폴백하는 대표 패턴
 if (matchingOrderStatus == null) {
     return OrderStatus.values()[0].getName(); // NOTPAID로 덮음
 }
@@ -321,7 +321,7 @@ try {
 }
 ```
 
-공통 라이브러리에서는 잘못된 입력을 조용히 감추는 대신 즉시 예외를 발생시켜 호출 단계에서 원인을 드러내야 한다. 또한 매 호출마다 무거운 `SimpleDateFormat`을 새로 생성하는 대신 스레드 세이프한 `java.time.LocalDateTime`을 사용하는 편이 낫다.
+공통 라이브러리에서는 잘못된 입력을 임의 기본값으로 덮어 가리는 대신 즉시 예외를 발생시켜 호출 단계에서 원인을 드러내야 한다. 또한 매 호출마다 무거운 `SimpleDateFormat`을 새로 생성하는 대신 스레드 세이프한 `java.time.LocalDateTime`을 사용하는 편이 낫다.
 
 ### 3) 무상태 JWT 로컬 검증과 예외 계층 불일치 (`JWTUtil`, `JWTFilter`)
 
@@ -334,8 +334,8 @@ try {
 
 하지만 구현 세부를 보면 두 가지 주의점이 드러난다.
 
-1. **비밀키 하드코딩**: `JWTUtil`이 HMAC-SHA256 검증용 대칭키 문자열(`"secret"`)을 자바 소스코드에 직접 하드코딩해 두었다. 무상태 로컬 검증 구조 자체는 적절하지만, 키 유출 시 46개 서비스 이미지를 모두 재빌드해야 하므로 환경변수나 Secret Manager 주입 또는 비대칭키(RSA/ECDSA) 공개키 배포를 써야 한다.
-2. **예외 상속 불일치로 인한 상태 코드 왜곡 (`401` ➔ `500`)**:
+1. **비밀키 하드코딩**: `JWTUtil`이 HMAC-SHA256 검증용 대칭키 문자열(`"secret"`)을 자바 소스코드에 직접 하드코딩해 두었다. 무상태 로컬 검증 구조 자체는 적절하다. 다만 키가 유출될 경우 46개 서비스 이미지를 모두 재빌드해야 하므로, 환경변수나 Secret Manager 주입 또는 비대칭키(RSA/ECDSA) 공개키 배포를 써야 한다.
+2. **예외 상속 불일치로 인한 인증 실패(`401`) ➔ 서버 내부 오류(`500`) 왜곡**:
 
 ```java
 // ts-common/src/main/java/edu/fudan/common/security/jwt/JWTFilter.java
@@ -363,7 +363,7 @@ this.number = trainNumber.substring(1);
 
 반면 공통 모듈 `ts-common` 자체가 모든 서비스를 강하게 묶는 결합점도 만들어낸다.
 * **매 요청 직렬화 객체 할당**: JSON 변환 유틸리티(`JsonUtils`)가 스레드 세이프한 Jackson `ObjectMapper`를 `static final` 상수로 재사용하지 않고, 호출할 때마다 `new ObjectMapper()`를 생성한다. 게다가 직렬화 실패 시 예외 대신 `null`을 반환해 호출 측 `NullPointerException`으로 번진다.
-* **44개 엔티티를 한곳에 모은 공유 커널(Shared Kernel)**: `ts-common` 패키지 하나에 `Order`, `Route`, `Seat`, `Food`, `Station`, `User` 등 44개 도메인 모델이 함께 들어 있다. 이 구조에서는 `Order` 필드 하나만 바꿔도 주문과 무관한 `ts-avatar-service`나 `ts-station-service`까지 의존성 재컴파일과 영향도 검증을 거쳐야 해 독립 배포가 어려워진다.
+* **44개 엔티티를 한곳에 모은 공유 커널(Shared Kernel)**: `ts-common` 패키지 하나에 `Order`, `Route`, `Seat`, `Food`, `Station`, `User` 등 44개 도메인 모델이 함께 들어 있다. 이 구조에서는 `Order` 필드 하나만 바꿔도 주문과 무관한 서비스(`ts-avatar-service`, `ts-station-service`)까지 영향을 받는다. 의존성 재컴파일과 영향도 검증을 거쳐야 해 서비스별 독립 배포가 어려워진다.
 
 ---
 

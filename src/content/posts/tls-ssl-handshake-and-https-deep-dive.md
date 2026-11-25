@@ -93,8 +93,8 @@ flowchart TD
 
 1. **수신자 공개키로 암호화 $\rightarrow$ 수신자 개인키로 복호화**:
    - 오직 개인키를 보유한 수신자만이 복호화할 수 있다. $\rightarrow$ **기밀성(Confidentiality)**
-2. **송신자 개인키로 암호화(서명) $\rightarrow$ 송신자 공개키로 검증**:
-   - 오직 송신자만이 서명을 생성할 수 있고, 누구나 공개키로 진위를 검증할 수 있다. $\rightarrow$ **인증(Authentication) 및 무결성(Integrity)**
+2. **송신자 개인키로 서명 $\rightarrow$ 송신자 공개키로 검증**:
+   - 오직 송신자만이 개인키로 서명을 생성할 수 있고, 누구나 공개키로 진위를 검증할 수 있다. $\rightarrow$ **인증(Authentication) 및 무결성(Integrity)**
 
 ### 2) RSA의 수학적 트랩도어와 연산량 한계
 RSA는 **"두 소수의 곱셈은 쉬우나, 그 곱을 다시 소인수분해하는 것은 매우 어렵다"**는 소인수분해 난제(Integer Factorization Problem)에 기반한 트랩도어 일방향 함수다.
@@ -141,12 +141,12 @@ sequenceDiagram
     Note over Bob: 공통 세션키 K 합성:<br/>K = A^b mod p = (g^a)^b mod p = g^(ab) mod p
 ```
 
-도청자가 전송 구간에서 $p, g, A(=g^a), B(=g^b)$를 모두 수집하더라도, $g^{ab} \pmod p$를 도출하려면 $a$나 $b$ 중 하나를 이산대수 역산으로 풀어내야 하므로 비밀키 $K$는 안전하게 보호된다.
+도청자가 전송 구간에서 $p, g, A(=g^a), B(=g^b)$를 모두 수집하더라도 비밀키 $K$는 보호된다. $g^{ab} \pmod p$를 도출하려면 $a$나 $b$ 중 하나를 이산대수 역산으로 풀어내야 하기 때문이다.
 
 ### 4) 타원곡선(ECDHE)과 완전 순방향 비밀성(PFS)
 하지만 기존 유한체 디피-헬만(DH) 역시 보안성을 갖추려면 2048비트 이상의 소수를 다루어야 하므로 연산 오버헤드가 여전히 컸다. 이를 타원곡선 대수로 개선한 방식이 **ECDHE(Elliptic Curve Diffie-Hellman Ephemeral)**다.
 
-타원곡선($y^2 = x^3 + ax + b$) 상의 기준점 $G$에 스칼라 $d$를 곱하는 연산($Q = d \cdot G$)은 효율적이지만, $Q$와 $G$만으로 $d$를 찾는 것은 타원곡선 이산대수 난제(ECDLP)에 의해 계산상 불가능하다.  
+타원곡선($y^2 = x^3 + ax + b$) 상의 기준점 $G$에 스칼라 $d$를 곱하는 연산($Q = d \cdot G$)은 빠르다. 반면 $Q$와 $G$만으로 $d$를 찾는 것은 타원곡선 이산대수 난제(ECDLP) 덕분에 계산상 불가능하다.
 **256비트 타원곡선(X25519, secp256r1)은 RSA 3072비트에 필적하는 보안 강도를 제공하면서도, 연산량과 패킷 크기를 크게 줄여 CPU 오버헤드를 낮췄다.**
 
 ```mermaid
@@ -301,8 +301,8 @@ sequenceDiagram
 
 #### 레거시 기능의 정리
 - 순방향 비밀성(PFS)을 지원하지 않는 정적 RSA 키 교환 제거.
-- 복호화 응답 차이로 평문을 역산당할 수 있는 CBC 모드(5장 참조), 취약한 RC4, 3DES, SHA-1 폐기.
-- 암호화와 무결성 검증을 한 번에 처리하는 **AEAD(5장 참조: AES-GCM, ChaCha20-Poly1305)와 ECDHE만 허용**.
+- 암호화 전 평문 블록을 앞 블록 암호문과 XOR해 연결하는 **CBC(Cipher Block Chaining) 모드**(복호화 패딩 오류 응답 차이로 평문을 역산하는 공격 취약, 세부 원리는 5장 참고)와 취약한 RC4, 3DES, SHA-1 폐기.
+- 암호화와 무결성 검증을 한 번에 처리하는 **AEAD(5장 설명: AES-GCM, ChaCha20-Poly1305)와 ECDHE만 허용**.
 
 ---
 
@@ -337,7 +337,7 @@ sequenceDiagram
 
 1. **`Key Share` 조기 전송**: 클라이언트는 서버의 응답을 기다리지 않고, **첫 패킷(`ClientHello`)에 자신의 타원곡선 공개키(`Key Share`)를 미리 포함**하여 발송한다.
 2. **단 1회 왕복으로 세션키 도출**: 서버가 자신의 공개키(`Key Share`)를 반환하는 즉시 양측 모두 세션 대칭키 계산을 완료한다.
-3. **`{...}` 중괄호 표기 (패킷 암호화)**: `ServerHello` 응답 직후부터 채널이 암호화되므로 **서버 인증서(`Certificate`)와 확장 협상 정보(`EncryptedExtensions`, 예: 6장의 ALPN 응용 프로토콜 협상 결과)가 감청으로부터 보호**된다. 다만 첫 `ClientHello`에 실려 가는 접속 도메인 정보(**SNI**, Server Name Indication)는 암호화 전 평문으로 전송되므로, SNI 자체까지 숨기려면 별도 **ECH(Encrypted Client Hello)** 확장이 필요하다.
+3. **`{...}` 중괄호 표기 (패킷 암호화)**: `ServerHello` 직후부터 채널이 암호화되어 서버 인증서(`Certificate`)와 확장 협상(`EncryptedExtensions`, 예: 6장의 ALPN 결과)이 감청에서 보호된다. 다만 첫 `ClientHello`의 접속 도메인(**SNI**, Server Name Indication)은 암호화 전 평문으로 전송되므로, 이를 숨기려면 **ECH(Encrypted Client Hello)** 확장이 필요하다.
 4. **`CertificateVerify`의 역할**: 공개키 인증서(`Certificate`)와 달리, 서버가 해당 공개키에 대응하는 비밀키를 실제로 소유하고 있음을 증명하기 위해 핸드셰이크 내역 전체를 개인키로 서명한 데이터다.
 5. **결과**: TCP 1 RTT + TLS 1.3 1 RTT = **총 2 RTT 만에 첫 HTTP 통신을 시작하여 초기 지연 시간을 33% 단축**했다.
 
@@ -392,7 +392,7 @@ sequenceDiagram
 
 - **공학적 방어 규칙**:
   1. **멱등성(Idempotency) 준수**: 서버 상태를 변경하는 **비멱등 요청(`POST`, `PUT`, `DELETE` - 결제, 주문 등)에는 0-RTT 사용을 제한**하고, 조회 목적의 **멱등한 요청(`GET`)에만 허용**해야 한다.
-  2. **Replay Window 필터링**: 프록시(Envoy, Nginx) 계층에서 수신된 0-RTT ClientHello 난수와 타임스탬프를 캐싱하여 중복 유입된 패킷을 식별하고 차단해야 한다.
+  2. **Replay Window 필터링**: 프록시(Envoy, Nginx) 계층에서 PSK 확장의 경과 시간(`obfuscated_ticket_age`)을 검증하고, 일회성 티켓이나 바인더 식별자를 재전송 방지 목록(Strike Register)에 기록해 중복 패킷을 차단해야 한다.
 
 ---
 
@@ -405,11 +405,10 @@ HTTP 데이터는 최대 16KB($2^{14}$ 바이트) 단위의 **레코드(Record)*
 
 | 레코드 필드 | 크기 | 역할 및 규격 |
 | :--- | :--- | :--- |
-| **Content Type** | 1 Byte | 20(ChangeCipherSpec), 21(Alert), 22(Handshake), 23(Application Data) 구분 |
-| **Protocol Version** | 2 Bytes | Major/Minor 버전이며 하위 호환성을 위해 `0x0303`(TLS 1.2 레거시 표기) 고정 |
-| **Length** | 2 Bytes | 뒤에 이어지는 암호화된 페이로드의 바이트 길이 |
-| **Encrypted Payload** | 가변 | AEAD로 암호화된 실제 데이터(Ciphertext) |
-| **Authentication Tag** | 16 Bytes | 암호문과 레코드 헤더의 변조 여부를 검증하는 인증 태그 |
+| **Content Type** | 1 Byte | TLS 1.2는 20(ChangeCipherSpec), 21(Alert), 22(Handshake), 23(App Data) 구분 / TLS 1.3 암호화 레코드는 외부 헤더를 `23`으로 고정 |
+| **Protocol Version** | 2 Bytes | 하위 호환용 레거시 버전 표기(TLS 1.2와 1.3 모두 `0x0303`을 쓰되, TLS 1.3 초기 `ClientHello` 레코드는 `0x0301` 허용) |
+| **Length** | 2 Bytes | 뒤에 이어지는 암호화 레코드 본문 전체의 바이트 길이(암호문 + 16바이트 태그, TLS 1.2는 명시적 Nonce 포함) |
+| **Encrypted Payload & Tag** | 가변 + 16 Bytes | AEAD로 암호화된 본문(Ciphertext)과 헤더/암호문 변조를 검증하는 16바이트 인증 태그(Authentication Tag) |
 
 ### 2) 기밀성과 무결성의 3대 결합 방식 (MtE, E&M, EtM)
 데이터 전송 단계에서 기밀성(대칭 암호화 $E$)과 무결성(메시지 인증 $MAC$)을 결합할 때, 두 암호학적 원시 연산을 조합하는 순서와 구조에 따라 3가지 전통적 아키텍처가 존재한다.
@@ -446,7 +445,7 @@ flowchart TD
    - **보안적 우수성**: 수신 측은 **복호화 연산을 수행하기 전에 암호문의 MAC 무결성을 먼저 검증**한다. 변조된 패킷은 복호화 루틴에 진입하지 못하고 폐기되므로 패딩 오라클 공격이 차단된다. 암호학적으로 선택 암호문 공격에서도 두 암호문을 구별할 수 없는 성질(구분 불가능성, IND-CCA2)이 입증된 유일한 결합 방식이다(TLS 1.2에서도 뒤늦게 RFC 7366 확장으로 채택됨).
 
 ### 3) 단일 파이프라인 AEAD(AES-GCM)로의 수렴 이유
-이론상 EtM이 수학적으로 안전함에도 불구하고, TLS 1.3은 개별 알고리즘 조합 방식을 전면 폐기하고 **AEAD(Authenticated Encryption with Associated Data)**만을 표준 암호 제품군으로 단일화했다.
+이론상 EtM이 수학적으로 안전함에도 TLS 1.3은 개별 알고리즘 조합을 폐기했다. 대신 **AEAD(Authenticated Encryption with Associated Data)**만을 표준 암호 제품군으로 단일화했다.
 
 1. **수동 조합의 구현 위험 제거**:
    - 암호화 알고리즘($E$)과 MAC 알고리즘을 엔지니어가 수동으로 조합하면 키 파생 오류, 초기화 벡터(IV) 재사용, 사이드 채널 타이밍 취약점이 구현마다 반복된다.
@@ -467,7 +466,7 @@ flowchart TD
 이전 글([L4와 L7 로드밸런서의 원리와 아키텍처](/posts/l4-l7-load-balancer-architecture))에서 다룬 **L7 SSL Termination(오프로딩)**은 암호화 연산 부하를 최전방 인프라 엣지로 격리하는 아키텍처 패턴이다.
 
 - 다수의 외부 클라이언트로부터 유입되는 비대칭키 핸드셰이크와 대칭키 복호화 작업을 최전방 L7 프록시(ALB, Nginx, Envoy)에서 종단한다.
-- 전용 하드웨어 가속 모듈(QAT, AWS Nitro)을 갖춘 엣지 계층이 트래픽을 복호화한 후, 내부 사설망의 백엔드 마이크로서비스로는 평문 HTTP 패킷을 포워딩한다.
+- 전용 하드웨어 암호 가속 모듈(인텔 QAT(QuickAssist Technology)나 AWS Nitro 등)을 갖춘 엣지 계층이 트래픽을 복호화한다. 그 뒤 내부 사설망의 백엔드 마이크로서비스로는 평문 HTTP 패킷을 전달한다.
 - **백엔드 애플리케이션 서버는 암호화와 복호화 연산 부담을 덜고 순수 비즈니스 로직 처리에 컴퓨팅 자원을 집중**할 수 있다.
 
 ### 2) 세션 재사용(Session Resumption): Session ID vs Ticket
@@ -490,7 +489,7 @@ flowchart TD
 ```
 
 - **Session ID**: 서버 메모리에 상태를 저장하므로, 다중 인스턴스 환경에서 요청이 다른 서버로 분산되면 캐시 미스가 발생한다. 이 경우 전체 핸드셰이크를 다시 수행해야 한다.
-- **Session Ticket (RFC 5077)**: 서버가 세션 상태를 서버 측 **티켓 암호화 비밀키(STEK, Session Ticket Encryption Key)**로 암호화해 클라이언트에 티켓 형태로 발급한다. 클라이언트가 재접속 시 이 티켓을 제시하면 어느 서버든 같은 키로 복호화해 1 RTT 이하로 세션을 복원하는 **무상태(Stateless) 클러스터 아키텍처**를 구성할 수 있다.
+- **Session Ticket (RFC 5077)**: 서버가 세션 상태를 **티켓 암호화 비밀키(STEK)**로 암호화해 클라이언트에 티켓 형태로 발급한다. 클라이언트가 재접속 시 이 티켓을 제시하면 어느 서버든 같은 키로 복호화해 **1 RTT 만에** 세션을 복원하는 무상태 클러스터를 구성할 수 있다. *(0-RTT Early Data는 TLS 1.3의 PSK 확장으로 별도 지원된다.)*
 
 ### 3) ALPN(Application-Layer Protocol Negotiation)
 HTTP/1.1에서 바이너리 멀티플렉싱 기반의 HTTP/2 및 QUIC 기반 HTTP/3로 진화하면서 응용 프로토콜 협상이 필요해졌다.
@@ -522,7 +521,7 @@ sequenceDiagram
 ```
 
 - **상호 인증 메커니즘**: 서버뿐만 아니라 클라이언트도 자신의 X.509 인증서를 제시하고 개인키 서명(`CertificateVerify`)을 검증받는다.
-- **사이드카 프록시를 통한 자동화**: 쿠버네티스 파드에 주입된 Envoy 사이드카가 mTLS 암호화와 **서비스 워크로드 신원(SPIFFE ID, 예: `spiffe://cluster.local/ns/prod/sa/order-service`)**, 역할 기반 접근 제어(RBAC) 검증을 대행한다. 애플리케이션 코드는 비즈니스 로직에 집중하면서도 서비스 간 상호 인증을 유지할 수 있다.
+- **사이드카 프록시를 통한 자동화**: 쿠버네티스 파드에 주입된 Envoy 사이드카가 mTLS 암호화와 워크로드 신원(`SPIFFE ID`, 예: `spiffe://cluster.local/ns/prod/sa/order-service`), RBAC 검증을 대행한다. 덕분에 애플리케이션 코드는 비즈니스 로직에 집중하면서도 서비스 간 상호 인증을 유지한다.
 
 ---
 
@@ -530,6 +529,6 @@ sequenceDiagram
 
 TLS 아키텍처의 발전 과정은 보안 수준을 높이는 동시에 네트워크 왕복 지연(RTT)과 CPU 연산 비용을 낮추는 트레이드오프 조정으로 요약된다.
 
-- **연산 비용 절감**: 하이브리드 암호 구조(초기 키 교환만 ECDHE 비대칭키 사용, 본 데이터는 하드웨어 가속 기반 AES-GCM AEAD 단일 파이프라인)와 최전방 L7 프록시의 SSL Termination으로 백엔드 CPU 부담을 분리했다.
+- **연산 비용 절감**: 하이브리드 암호 구조(초기 키 교환은 ECDHE 비대칭키, 본 데이터는 AES-GCM AEAD 단일 파이프라인)로 연산 효율을 확보했다. 최전방 L7 프록시의 SSL Termination으로 백엔드 CPU 부담도 분리한다.
 - **네트워크 지연 단축**: OCSP Stapling으로 인증서 폐기 조회 1 RTT를 없애고, TLS 1.3의 1-RTT 핸드셰이크, ALPN, 0-RTT 세션 재개를 결합해 첫 데이터 전송까지의 왕복 횟수를 단계적으로 줄였다.
 - **인프라 보안 확장**: 서비스 메시 환경에서는 사이드카 기반 mTLS로 애플리케이션 변경 없이 서비스 간 상호 인증과 암호화를 적용한다.
